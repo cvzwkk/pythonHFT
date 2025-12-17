@@ -8,13 +8,14 @@ import json
 import numpy as np
 import pandas as pd
 from datetime import datetime
+import os
 
 # =========================
 # SETTINGS
 # =========================
 SYMBOL = 'btcusd'
 WS_URL = f"wss://ws.bitstamp.net"
-REST_URL = f"https://www.bitstamp.net/api/v2/ohlc/{SYMBOL}/?step=60&limit=1000"
+HIST_FILE = f"{SYMBOL}_historical.csv"
 MAX_PERIOD = 999
 
 # =========================
@@ -22,7 +23,15 @@ MAX_PERIOD = 999
 # =========================
 
 async def fetch_historical():
-    """Fetch max available historical OHLC data from Bitstamp REST API."""
+    """Fetch max available historical OHLC data from Bitstamp REST API or load from local CSV."""
+    if os.path.exists(HIST_FILE):
+        print(f"Loading historical data from {HIST_FILE}")
+        df = pd.read_csv(HIST_FILE)
+        df['close'] = df['close'].astype(float)
+        df['volume'] = df['volume'].astype(float)
+        return df
+
+    print("Fetching historical data from Bitstamp...")
     all_data = []
     step = 1000
     offset = 0
@@ -36,11 +45,16 @@ async def fetch_historical():
                     break
                 all_data.extend(ohlc)
                 offset += step
+
     df = pd.DataFrame(all_data)
     df['close'] = df['close'].astype(float)
     df['volume'] = df['volume'].astype(float)
     df.sort_values('timestamp', inplace=True)
     df.reset_index(drop=True, inplace=True)
+
+    # Save locally
+    df.to_csv(HIST_FILE, index=False)
+    print(f"Saved historical data to {HIST_FILE}")
     return df
 
 def covwma(prices, volumes, period):
@@ -69,16 +83,15 @@ def backtest(df):
     return results
 
 async def main():
-    print("Fetching historical data...")
     df = await fetch_historical()
-    print(f"Data fetched: {len(df)} rows")
-    
+    print(f"Data rows: {len(df)}")
+
     print("Starting backtest...")
     results = backtest(df)
     
     best_period = max(results, key=results.get)
     print(f"Best CovWMA period: {best_period}, PnL: {results[best_period]:.2f}")
-    
+
     # =========================
     # OPTIONAL: LIVE WEBSOCKET
     # =========================
