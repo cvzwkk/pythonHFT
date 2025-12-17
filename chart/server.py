@@ -52,4 +52,4 @@ async def main_loop():
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(main_loop())
-    uvicorn.run(app, host="0.0.0.0", port=6060)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
