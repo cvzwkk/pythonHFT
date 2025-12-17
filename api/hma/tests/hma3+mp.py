@@ -94,9 +94,10 @@ class PaperTrader:
         self.pnl = {e: 0.0 for e in ORDERBOOK_APIS}
         self.trade_history = deque(maxlen=100)
         self.trading_halted = False
-        self.default_size = 0.5         # initial BTC size
+        self.default_size = 0.5          # BTC size per entry
         self.adjust_step_pct = 0.001/100  # price step to add
         self.take_profit_pct = 0.009/100  # final TP target
+        self.max_adds = 5                 # maximum DCA additions
 
     def open_trade(self, ex, side, price):
         if self.trading_halted or self.balance <= 0:
@@ -106,11 +107,15 @@ class PaperTrader:
 
         # No position, open new
         if pos is None:
+            if self.balance < self.default_size * price:
+                return  # not enough balance
+            self.balance -= self.default_size * price
             self.positions[ex] = {
                 "side": side,
                 "avg_entry": price,
                 "total_size": self.default_size,
-                "next_add_price": price*(1 - self.adjust_step_pct) if side=="buy" else price*(1 + self.adjust_step_pct)
+                "next_add_price": price*(1 - self.adjust_step_pct) if side=="buy" else price*(1 + self.adjust_step_pct),
+                "adds_done": 0
             }
             self.trade_history.append({
                 "exchange": ex,
@@ -127,14 +132,18 @@ class PaperTrader:
         side = pos["side"]
         add_price = pos["next_add_price"]
 
-        if (side=="buy" and price <= add_price) or (side=="sell" and price >= add_price):
+        if ((side=="buy" and price <= add_price) or (side=="sell" and price >= add_price)) and pos["adds_done"] < self.max_adds:
+            if self.balance < self.default_size * price:
+                return  # not enough balance
             added_size = self.default_size
+            self.balance -= added_size * price  # subtract amount from balance
             total_size = pos["total_size"] + added_size
             avg_entry = (pos["avg_entry"]*pos["total_size"] + price*added_size)/total_size
 
             pos["avg_entry"] = avg_entry
             pos["total_size"] = total_size
             pos["next_add_price"] = price*(1 - self.adjust_step_pct) if side=="buy" else price*(1 + self.adjust_step_pct)
+            pos["adds_done"] += 1
 
             self.trade_history.append({
                 "exchange": ex,
@@ -157,6 +166,7 @@ class PaperTrader:
 
         pnl_pct = (price - avg_entry)/avg_entry if side=="buy" else (avg_entry - price)/avg_entry
 
+        # Close if take profit reached
         if pnl_pct >= self.take_profit_pct:
             pnl = (price - avg_entry)*total_size if side=="buy" else (avg_entry - price)*total_size
             self.balance += pnl
@@ -172,6 +182,26 @@ class PaperTrader:
                 "pnl": pnl,
                 "time": datetime.now().strftime("%H:%M:%S")
             })
+
+        # Hard stop: all adds done, still negative
+        elif pos["adds_done"] >= self.max_adds and pnl_pct < 0:
+            pnl = (price - avg_entry)*total_size if side=="buy" else (avg_entry - price)*total_size
+            self.balance += pnl
+            self.pnl[ex] += pnl
+            self.positions[ex] = None
+            self.trading_halted = True  # halt all future trades
+
+            self.trade_history.append({
+                "exchange": ex,
+                "type": "FORCED_EXIT",
+                "side": side.upper(),
+                "price": price,
+                "size": total_size,
+                "pnl": pnl,
+                "time": datetime.now().strftime("%H:%M:%S")
+            })
+            print(f"⚠️ HARD STOP triggered on {ex}. Total PnL negative. Trading halted.")
+
 
     def total_pnl(self):
         return sum(self.pnl.values())
