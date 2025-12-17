@@ -1,3 +1,4 @@
+!pip install pyngrok
 
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
@@ -139,33 +140,32 @@ MODELS = {
 }
 
 # =========================
-# PAPER TRADER
-# =========================
-# =========================
 # PAPER TRADER (with trade history)
 # =========================
 from collections import deque
 
+# =========================
+# PAPER TRADER WITH TRAILING STOP
+# =========================
 class PaperTrader:
     def __init__(self, balance=1000):
         self.balance = balance
         self.positions = {e: None for e in ORDERBOOK_APIS}
         self.pnl = {e: 0.0 for e in ORDERBOOK_APIS}
-        self.trade_history = deque(maxlen=50)  # last 50 trades
-        self.trading_halted = False  # <--- new flag
+        self.trade_history = deque(maxlen=50)
+        self.trading_halted = False
 
     def open_trade(self, ex, side, price, size=1.0):
-        # If balance is negative, halt further trading
-        if self.balance <= 0:
-            self.trading_halted = True
-            print(f"⚠️ Balance is negative ({self.balance}), stopping all new trades.")
+        if self.balance <= 0 or self.trading_halted:
             return
-        
-        if self.trading_halted:
-            return  # Do not allow new trades
 
         if self.positions[ex] is None:
-            self.positions[ex] = {"side": side, "entry": price, "size": size}
+            self.positions[ex] = {
+                "side": side,
+                "entry": price,
+                "size": size,
+                "trailing_stop": None  # <-- add trailing stop
+            }
             self.trade_history.append({
                 "exchange": ex,
                 "type": "ENTRY",
@@ -176,29 +176,29 @@ class PaperTrader:
             })
 
     def close_trade(self, ex, price):
-        p = self.positions[ex]
-        if p:
-            size = p.get("size", 1.0)
-            pnl = (price - p["entry"]) * size if p["side"] == "buy" else (p["entry"] - price) * size
+        pos = self.positions[ex]
+        if pos:
+            size = pos.get("size", 1.0)
+            pnl = (price - pos["entry"]) * size if pos["side"] == "buy" else (pos["entry"] - price) * size
             self.balance += pnl
             self.pnl[ex] += pnl
             self.positions[ex] = None
             self.trade_history.append({
                 "exchange": ex,
                 "type": "EXIT",
-                "side": p["side"].upper(),
+                "side": pos["side"].upper(),
                 "price": price,
                 "pnl": pnl,
                 "time": datetime.now().strftime("%H:%M:%S")
             })
 
-            # Re-check balance after closing trade
             if self.balance <= 0:
                 self.trading_halted = True
                 print(f"⚠️ Balance is negative ({self.balance}), trading halted.")
 
     def total_pnl(self):
         return sum(self.pnl.values())
+
 
 
 # =========================
@@ -235,8 +235,15 @@ trader = PaperTrader()
 latest_results = {}
 
 # =========================
-# BACKGROUND PRICE UPDATES
+# UPDATE PRICES WITH TRAILING STOP
 # =========================
+MAX_OPEN_TRADES = 8
+TAKE_PROFIT_PCT = 0.09 / 100
+STOP_LOSS_PCT = 0.04 / 100
+STOP_LOSS_USD = 40
+TRAIL_START_PCT = 0.03 / 100
+TRAIL_OFFSET_PCT = 0.015 / 100
+
 async def update_prices():
     global latest_results
     async with aiohttp.ClientSession() as session:
@@ -245,36 +252,76 @@ async def update_prices():
                 fetch_price(e, u, session) for e, u in ORDERBOOK_APIS.items()
             ])
             for ex, price in results:
-                if price is not None:
-                    history[ex].append(price)
-                    pred = MODELS["HMA"](list(history[ex])) if len(history[ex]) >= 12 else None
-                    #pred = MODELS["ZLEMA"](list(history[ex]), period=38)   
-                    pos = trader.positions[ex]
-                    status = pos["side"].upper() if pos else "-"
-                    if pred is not None:
-                        vol = np.std(log_returns(np.array(history[ex]))) + 1e-8
-                        threshold = price * vol * 0.2
-                        if pos is None:
-                            if pred > price + threshold:
-                                trader.open_trade(ex, "buy", price)
-                                status = "BUY"
-                            elif pred < price - threshold:
-                                trader.open_trade(ex, "sell", price)
-                                status = "SELL"
-                        else:
-                            if pos["side"] == "buy" and pred < price - threshold:
-                                trader.close_trade(ex, price)
-                                status = "-"
-                            elif pos["side"] == "sell" and pred > price + threshold:
-                                trader.close_trade(ex, price)
-                                status = "-"
-                    latest_results[ex] = {
-                        "price": price,
-                        "prediction": pred,
-                        "position": status,
-                        "pnl": trader.pnl[ex]
-                    }
+                if price is None:
+                    continue
+
+                history[ex].append(price)
+
+                # Compute predictions
+                pred_hma = MODELS["HMA"](list(history[ex])) if len(history[ex]) >= 12 else None
+                pred_hma2 = MODELS["HMA2"](list(history[ex])) if len(history[ex]) >= 12 else None
+
+                pos = trader.positions[ex]
+                status = pos["side"].upper() if pos else "-"
+
+                # Only allow MAX_OPEN_TRADES
+                open_trades_count = sum(1 for p in trader.positions.values() if p is not None)
+
+                if pred_hma is not None and open_trades_count < MAX_OPEN_TRADES:
+                    if pos is None:
+                        if pred_hma > price and price > min(pred_hma, pred_hma2):
+                            trader.open_trade(ex, "buy", price)
+                            status = "BUY"
+                        elif pred_hma < price and price < max(pred_hma, pred_hma2):
+                            trader.open_trade(ex, "sell", price)
+                            status = "SELL"
+
+                # Manage open trades: TP, SL, Trailing stop
+                if pos:
+                    entry = pos["entry"]
+                    side = pos["side"]
+                    size = pos.get("size", 1.0)
+
+                    pnl_usd = (price - entry) * size if side == "buy" else (entry - price) * size
+                    pnl_pct = (price - entry)/entry if side == "buy" else (entry - price)/entry
+
+                    # Take profit
+                    tp_trigger = pnl_pct >= TAKE_PROFIT_PCT
+                    # Stop loss
+                    sl_trigger = pnl_pct <= -STOP_LOSS_PCT or pnl_usd <= -STOP_LOSS_USD
+
+                    # Trailing stop logic
+                    if pnl_pct >= TRAIL_START_PCT:
+                        if side == "buy":
+                            new_trail = price * (1 - TRAIL_OFFSET_PCT)
+                            if pos["trailing_stop"] is None or new_trail > pos["trailing_stop"]:
+                                pos["trailing_stop"] = new_trail
+                        else:  # sell
+                            new_trail = price * (1 + TRAIL_OFFSET_PCT)
+                            if pos["trailing_stop"] is None or new_trail < pos["trailing_stop"]:
+                                pos["trailing_stop"] = new_trail
+
+                    # Check trailing stop hit
+                    trail_hit = False
+                    if pos["trailing_stop"] is not None:
+                        if (side == "buy" and price <= pos["trailing_stop"]) or (side == "sell" and price >= pos["trailing_stop"]):
+                            trail_hit = True
+
+                    if tp_trigger or sl_trigger or trail_hit:
+                        trader.close_trade(ex, price)
+                        status = "-"
+
+                latest_results[ex] = {
+                    "price": price,
+                    "prediction_hma": pred_hma,
+                    "prediction_hma2": pred_hma2,
+                    "position": status,
+                    "pnl": trader.pnl[ex]
+                }
+
             await asyncio.sleep(1)
+
+
             
 # =========================
 # FASTAPI
