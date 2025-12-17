@@ -92,26 +92,102 @@ MODELS = {
 # =========================
 class PaperTrader:
     def __init__(self, balance=100):
+        self.initial_balance = balance
         self.balance = balance
+
         self.positions = {e: None for e in ORDERBOOK_APIS}
         self.pnl = {e: 0.0 for e in ORDERBOOK_APIS}
-        self.trade_history = deque(maxlen=100)
+        self.trade_history = deque(maxlen=200)
+
+        # ---- risk controls ----
         self.trading_halted = False
+        self.max_adds = 35
+        self.global_equity_stop_pct = -0.25   # 🔥 -25% equity drawdown
 
-        self.entry_size = 0.01       # initial BTC entry
-        self.add_ratio = 0.86        # 86% of current total size
-        self.adjust_step_pct = 0.001 / 100  # price step to add
-        self.take_profit_pct = 0.009 / 100  # final TP target
+        # ---- DCA params ----
+        self.entry_size = 0.01
+        self.add_ratio = 0.86
+        self.adjust_step_pct = 0.001 / 100
+        self.take_profit_pct = 0.009 / 100
 
+    # =========================
+    # FORCE CLOSE (USED EVERYWHERE)
+    # =========================
+    def force_close(self, ex, price, reason):
+        pos = self.positions[ex]
+        if pos is None:
+            return
+
+        side = pos["side"]
+        size = pos["total_size"]
+        avg = pos["avg_entry"]
+
+        pnl = (
+            (price - avg) * size
+            if side == "buy"
+            else (avg - price) * size
+        )
+
+        self.balance += pnl
+        self.pnl[ex] += pnl
+        self.positions[ex] = None
+
+        self.trade_history.append({
+            "exchange": ex,
+            "type": f"FORCE_EXIT_{reason}",
+            "side": side.upper(),
+            "price": price,
+            "size": size,
+            "pnl": pnl,
+            "time": datetime.now().strftime("%H:%M:%S")
+        })
+
+    # =========================
+    # GLOBAL EQUITY STOP (ALL AT ONCE)
+    # =========================
+    def check_global_equity_stop(self, prices):
+        equity = self.balance
+
+        for ex, pos in self.positions.items():
+            if pos is None:
+                continue
+            price = prices.get(ex)
+            if price is None:
+                continue
+
+            side = pos["side"]
+            size = pos["total_size"]
+            avg = pos["avg_entry"]
+
+            unreal = (
+                (price - avg) * size
+                if side == "buy"
+                else (avg - price) * size
+            )
+            equity += unreal
+
+        drawdown = (equity - self.initial_balance) / self.initial_balance
+
+        if drawdown <= self.global_equity_stop_pct:
+            for ex, pos in list(self.positions.items()):
+                if pos is not None and ex in prices:
+                    self.force_close(ex, prices[ex], "GLOBAL_EQUITY_STOP")
+
+            self.trading_halted = True
+            return True
+
+        return False
+
+    # =========================
+    # OPEN / ADD TRADE
+    # =========================
     def open_trade(self, ex, side, price):
         if self.trading_halted:
             return
 
         pos = self.positions[ex]
 
-        # =========================
-        # NEW ENTRY
-        # =========================
+        # ---------- NEW ENTRY ----------
         if pos is None:
             size = self.entry_size
             usd_value = size * price
@@ -141,36 +217,34 @@ class PaperTrader:
             })
             return
 
-        # =========================
-        # SCALE-IN (86% OF TOTAL)
-        # =========================
-        side = pos["side"]
-        add_price = pos["next_add_price"]
+        # ---------- HARD ADD LIMIT ----------
+        if pos["adds"] >= self.max_adds:
+            self.force_close(ex, price, "MAX_ADDS")
+            return
 
+        # ---------- SCALE IN ----------
+        side = pos["side"]
         should_add = (
-            (side == "buy" and price <= add_price) or
-            (side == "sell" and price >= add_price)
+            (side == "buy" and price <= pos["next_add_price"]) or
+            (side == "sell" and price >= pos["next_add_price"])
         )
 
         if not should_add:
             return
 
-        # 🔥 managed add size (BTC → USD)
         added_size = pos["total_size"] * self.add_ratio
         usd_added = added_size * price
 
-        new_total_size = pos["total_size"] + added_size
-        new_total_usd = pos["total_usd_committed"] + usd_added
+        new_size = pos["total_size"] + added_size
+        new_usd = pos["total_usd_committed"] + usd_added
 
-        # weighted average entry
-        avg_entry = (
-            pos["avg_entry"] * pos["total_size"]
-            + price * added_size
-        ) / new_total_size
+        pos["avg_entry"] = (
+            pos["avg_entry"] * pos["total_size"] +
+            price * added_size
+        ) / new_size
 
-        pos["avg_entry"] = avg_entry
-        pos["total_size"] = new_total_size
-        pos["total_usd_committed"] = new_total_usd
+        pos["total_size"] = new_size
+        pos["total_usd_committed"] = new_usd
         pos["adds"] += 1
         pos["next_add_price"] = (
             price * (1 - self.adjust_step_pct)
@@ -189,36 +263,30 @@ class PaperTrader:
             "time": datetime.now().strftime("%H:%M:%S")
         })
 
-
+    # =========================
+    # TAKE PROFIT
+    # =========================
     def check_close_trade(self, ex, price):
         pos = self.positions[ex]
         if pos is None:
             return
 
         side = pos["side"]
-        avg_entry = pos["avg_entry"]
-        total_size = pos["total_size"]
+        avg = pos["avg_entry"]
+        size = pos["total_size"]
 
-        pnl_pct = (price - avg_entry)/avg_entry if side=="buy" else (avg_entry - price)/avg_entry
+        pnl_pct = (
+            (price - avg) / avg
+            if side == "buy"
+            else (avg - price) / avg
+        )
 
         if pnl_pct >= self.take_profit_pct:
-            pnl = (price - avg_entry)*total_size if side=="buy" else (avg_entry - price)*total_size
-            self.balance += pnl
-            self.pnl[ex] += pnl
-            self.positions[ex] = None
-
-            self.trade_history.append({
-                "exchange": ex,
-                "type": "EXIT",
-                "side": side.upper(),
-                "price": price,
-                "size": total_size,
-                "pnl": pnl,
-                "time": datetime.now().strftime("%H:%M:%S")
-            })
+            self.force_close(ex, price, "TP")
 
     def total_pnl(self):
         return sum(self.pnl.values())
+
 
 # =========================
 # SAVE & LOAD STATE
@@ -305,36 +373,56 @@ async def update_prices():
                     "pnl": trader.pnl[ex]
                 }
 
-            # Check close positions
+            # =========================
+            # CHECK CLOSE POSITIONS
+            # =========================
             for ex, pos in list(trader.positions.items()):
                 if pos is None:
                     continue
                 trader.check_close_trade(ex, latest_results[ex]["price"])
 
-            # Open or scale trades
-            open_trades_count = sum(1 for p in trader.positions.values() if p is not None)
+            # =========================
+            # OPEN OR SCALE TRADES
+            # =========================
+            open_trades_count = sum(
+                1 for p in trader.positions.values() if p is not None
+            )
+
             for ex, price in results:
                 if price is None:
                     continue
+
                 pos = trader.positions[ex]
                 pred_hma = latest_results[ex]["prediction_hma"]
                 pred_hma2 = latest_results[ex]["prediction_hma2"]
 
-                # New trade
-                if pred_hma is not None and pos is None and open_trades_count < MAX_OPEN_TRADES:
+                # =========================
+                # NEW TRADE (STRICT LIMIT)
+                # =========================
+                if (
+                    pred_hma is not None
+                    and pos is None
+                    and open_trades_count < MAX_OPEN_TRADES
+                ):
                     if pred_hma > price and price > min(pred_hma, pred_hma2):
                         trader.open_trade(ex, "buy", price)
-                        open_trades_count +=1
+                        open_trades_count += 1
+
                     elif pred_hma < price and price < max(pred_hma, pred_hma2):
                         trader.open_trade(ex, "sell", price)
-                        open_trades_count +=1
-                # Scale-in existing
+                        open_trades_count += 1
+
+                # =========================
+                # SCALE-IN EXISTING POSITION
+                # =========================
                 elif pos is not None:
                     trader.open_trade(ex, pos["side"], price)
 
             save_state(trader)
             await asyncio.sleep(1)
 
+
+            
 # =========================
 # DASHBOARD
 # =========================
