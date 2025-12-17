@@ -93,57 +93,90 @@ class PaperTrader:
         self.pnl = {e: 0.0 for e in ORDERBOOK_APIS}
         self.trade_history = deque(maxlen=100)
         self.trading_halted = False
-        self.default_size = 0.5         # initial BTC size
+        self.entry_size = 0.01      # initial BTC entry
+        self.add_ratio = 0.86       # 86% of current total size
         self.adjust_step_pct = 0.001/100  # price step to add
         self.take_profit_pct = 0.009/100  # final TP target
 
     def open_trade(self, ex, side, price):
-        if self.trading_halted or self.balance <= 0:
-            return
+    if self.trading_halted:
+        return
 
-        pos = self.positions[ex]
+    pos = self.positions[ex]
 
-        # No position, open new
-        if pos is None:
-            self.positions[ex] = {
-                "side": side,
-                "avg_entry": price,
-                "total_size": self.default_size,
-                "next_add_price": price*(1 - self.adjust_step_pct) if side=="buy" else price*(1 + self.adjust_step_pct)
-            }
-            self.trade_history.append({
-                "exchange": ex,
-                "type": "ENTRY",
-                "side": side.upper(),
-                "price": price,
-                "size": self.default_size,
-                "pnl": None,
-                "time": datetime.now().strftime("%H:%M:%S")
-            })
-            return
+    # =========================
+    # NEW ENTRY
+    # =========================
+    if pos is None:
+        size = self.entry_size
 
-        # Scale-in if price moves against
-        side = pos["side"]
-        add_price = pos["next_add_price"]
+        self.positions[ex] = {
+            "side": side,
+            "avg_entry": price,
+            "total_size": size,
+            "next_add_price": price * (1 - self.adjust_step_pct) if side == "buy"
+                              else price * (1 + self.adjust_step_pct),
+            "adds": 0
+        }
 
-        if (side=="buy" and price <= add_price) or (side=="sell" and price >= add_price):
-            added_size = self.default_size
-            total_size = pos["total_size"] + added_size
-            avg_entry = (pos["avg_entry"]*pos["total_size"] + price*added_size)/total_size
+        self.trade_history.append({
+            "exchange": ex,
+            "type": "ENTRY",
+            "side": side.upper(),
+            "price": price,
+            "size": size,
+            "pnl": None,
+            "time": datetime.now().strftime("%H:%M:%S")
+        })
+        return
 
-            pos["avg_entry"] = avg_entry
-            pos["total_size"] = total_size
-            pos["next_add_price"] = price*(1 - self.adjust_step_pct) if side=="buy" else price*(1 + self.adjust_step_pct)
+    # =========================
+    # SCALE-IN (86% OF TOTAL)
+    # =========================
+    side = pos["side"]
+    add_price = pos["next_add_price"]
 
-            self.trade_history.append({
-                "exchange": ex,
-                "type": "ADD",
-                "side": side.upper(),
-                "price": price,
-                "size": added_size,
-                "pnl": None,
-                "time": datetime.now().strftime("%H:%M:%S")
-            })
+    should_add = (
+        (side == "buy" and price <= add_price) or
+        (side == "sell" and price >= add_price)
+    )
+
+    if not should_add:
+        return
+
+    # 🔥 managed add size
+    added_size = pos["total_size"] * self.add_ratio
+    new_total = pos["total_size"] + added_size
+
+    # weighted average price
+    avg_entry = (
+        pos["avg_entry"] * pos["total_size"] +
+        price * added_size
+    ) / new_total
+
+    pos["avg_entry"] = avg_entry
+    pos["total_size"] = new_total
+    pos["adds"] += 1
+    pos["next_add_price"] = (
+        price * (1 - self.adjust_step_pct)
+        if side == "buy"
+        else price * (1 + self.adjust_step_pct)
+    )
+
+    self.trade_history.append({
+        "exchange": ex,
+        "type": "ADD",
+        "side": side.upper(),
+        "price": price,
+        "size": added_size,
+        "pnl": None,
+        "time": datetime.now().strftime("%H:%M:%S")
+    })
+
+    
+
+
+
 
     def check_close_trade(self, ex, price):
         pos = self.positions[ex]
