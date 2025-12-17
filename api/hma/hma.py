@@ -44,7 +44,7 @@ def micro_price(bid, ask, bid_sz, ask_sz):
 # =========================
 # HMA MODEL
 # =========================
-def predict_hma_robust(prices, period=16):
+def predict_hma_robust(prices, period=58):
     if len(prices) < 4:
         return None
     prices = np.array(prices, dtype=np.float64)
