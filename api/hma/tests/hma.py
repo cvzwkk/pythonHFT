@@ -95,8 +95,14 @@ class PaperTrader:
         self.trading_halted = False
         self.default_size = 0.5
         self.next_size = self.default_size
+        self.last_close_time = {e: 0 for e in ORDERBOOK_APIS}  # timestamp of last closed trade
 
     def open_trade(self, ex, side, price):
+        now = datetime.now().timestamp()
+        # Check 1-second delay since last close
+        if now - self.last_close_time.get(ex, 0) < 1:
+            return
+
         if self.balance <= 0 or self.trading_halted:
             return
 
@@ -130,6 +136,9 @@ class PaperTrader:
             self.balance += pnl
             self.pnl[ex] += pnl
             self.positions[ex] = None
+
+            # Store timestamp of last close
+            self.last_close_time[ex] = datetime.now().timestamp()
 
             # Dynamic size adjustments
             if pnl_pct >= 0.03 / 100:
@@ -215,10 +224,10 @@ latest_results = {}
 # =========================
 # TRADING PARAMETERS
 # =========================
-MAX_OPEN_TRADES = 8
-TAKE_PROFIT_PCT = 0.09 / 100
-STOP_LOSS_PCT = 0.04 / 100
-STOP_LOSS_USD = 40
+MAX_OPEN_TRADES = 4
+TAKE_PROFIT_PCT = 0.02 / 100
+STOP_LOSS_PCT = 0.0001 / 100
+STOP_LOSS_USD = 1
 TRAIL_START_PCT = 0.03 / 100
 TRAIL_OFFSET_PCT = 0.015 / 100
 
@@ -321,7 +330,7 @@ async def dashboard_loop():
         print("Last 5 Trades:")
         for t in list(trader.trade_history)[-5:]:
             print(f"{t['time']} | {t['exchange']:<8} | {t['side']:<4} | {t['price']:.2f} | {t['size']:.4f} BTC | PnL: {t['pnl']}")
-        await asyncio.sleep(1)
+        await asyncio.sleep(0)
 
 # =========================
 # FASTAPI
