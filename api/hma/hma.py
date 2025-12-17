@@ -74,7 +74,36 @@ def predict_hma_robust(prices, period=58):
     forecast = hma + slope * (1 + vol_boost) + momentum * 0.5 + mr_factor * vol * 0.3
     return safe_return(forecast)
 
-MODELS = {"HMA": predict_hma_robust}
+# =========================
+# ZLEMA MODEL
+# =========================
+def zlema_series(prices, period=38):
+    """Compute ZLEMA and return last value as prediction"""
+    prices = np.array(prices, dtype=np.float64)
+    if len(prices) < period * 2:
+        return None
+    
+    lag = (period - 1) // 2
+    alpha = 2 / (period + 1)
+    
+    zlema = np.zeros_like(prices)
+    zlema[0] = prices[0]
+    
+    for i in range(1, len(prices)):
+        if i - lag - 1 >= 0:
+            adj = prices[i] + (prices[i] - prices[i - lag - 1])
+        else:
+            adj = prices[i]
+        zlema[i] = safe_return(alpha * adj + (1 - alpha) * zlema[i-1])
+    
+    return safe_return(zlema[-1])
+
+
+MODELS = {
+    "HMA": predict_hma_robust,
+    "ZLEMA": zlema_series
+
+}
 
 # =========================
 # PAPER TRADER
@@ -186,6 +215,7 @@ async def update_prices():
                 if price is not None:
                     history[ex].append(price)
                     pred = MODELS["HMA"](list(history[ex])) if len(history[ex]) >= 12 else None
+                    pred = MODELS["ZLEMA"](list(history[ex]), period=38)   
                     pos = trader.positions[ex]
                     status = pos["side"].upper() if pos else "-"
                     if pred is not None:
