@@ -247,7 +247,7 @@ async def update_prices():
             for ex, price in results:
                 if price is not None:
                     history[ex].append(price)
-                    pred = MODELS["HMA","HMA2"](list(history[ex])) if len(history[ex]) >= 12 else None
+                    pred = MODELS["HMA"](list(history[ex])) if len(history[ex]) >= 12 else None
                     #pred = MODELS["ZLEMA"](list(history[ex]), period=38)   
                     pos = trader.positions[ex]
                     status = pos["side"].upper() if pos else "-"
