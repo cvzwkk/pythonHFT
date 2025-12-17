@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BTCUSDT Live Tick Chart</title>
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+<h2>BTCUSDT Live Tick Chart</h2>
+<div id="chart" style="width:100%;height:600px;"></div>
+
+<script>
+let ws = new WebSocket(`ws://${window.location.hostname}:8000/ws`);
+let prices = [];
+let times = [];
+
+ws.onmessage = function(event) {
+    let trade = JSON.parse(event.data);
+    let price = trade.price;
+    let time = new Date(trade.time);
+
+    prices.push(price);
+    times.push(time);
+
+    if (prices.length > 500) {
+        prices.shift();
+        times.shift();
+    }
+
+    Plotly.react('chart', [{
+        x: times,
+        y: prices,
+        type: 'scatter',
+        mode: 'lines+markers',
+        line: {color: 'blue'}
+    }], {
+        margin: {t: 0}
+    });
+};
+</script>
+</body>
+</html>
