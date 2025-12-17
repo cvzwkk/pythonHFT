@@ -12,6 +12,8 @@ from fastapi.responses import JSONResponse
 from pyngrok import ngrok
 import uvicorn
 import os
+import json
+import logging
 
 # =========================
 # NGROK
@@ -28,6 +30,8 @@ ORDERBOOK_APIS = {
     "Bitstamp": "https://www.bitstamp.net/api/v2/order_book/btcusd/",
     "Bitfinex": "https://api.bitfinex.com/v1/book/btcusd"
 }
+
+STATE_FILE = "trader_state.json"
 
 def safe_return(v):
     return None if v is None or np.isnan(v) or np.isinf(v) else float(v)
@@ -153,6 +157,28 @@ class PaperTrader:
         return sum(self.pnl.values())
 
 # =========================
+# SAVE & LOAD STATE
+# =========================
+def save_state(trader):
+    state = {
+        "balance": trader.balance,
+        "trade_history": list(trader.trade_history),
+        "pnl": trader.pnl,
+        "next_size": trader.next_size
+    }
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f, indent=2)
+
+def load_state(trader):
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, "r") as f:
+            state = json.load(f)
+            trader.balance = state.get("balance", trader.balance)
+            trader.pnl = state.get("pnl", trader.pnl)
+            trader.next_size = state.get("next_size", trader.next_size)
+            trader.trade_history = deque(state.get("trade_history", []), maxlen=50)
+
+# =========================
 # FETCH ORDERBOOK
 # =========================
 async def fetch_price(ex, url, session):
@@ -183,6 +209,7 @@ async def fetch_price(ex, url, session):
 # =========================
 history = {e: deque(maxlen=60) for e in ORDERBOOK_APIS}
 trader = PaperTrader()
+load_state(trader)
 latest_results = {}
 
 # =========================
@@ -196,7 +223,7 @@ TRAIL_START_PCT = 0.03 / 100
 TRAIL_OFFSET_PCT = 0.015 / 100
 
 # =========================
-# PRICE UPDATES + TRADING LOGIC
+# TRADING LOOP
 # =========================
 async def update_prices():
     global latest_results
@@ -208,7 +235,6 @@ async def update_prices():
             for ex, price in results:
                 if price is None:
                     continue
-
                 history[ex].append(price)
 
                 pred_hma = MODELS["HMA"](list(history[ex])) if len(history[ex]) >= 12 else None
@@ -271,11 +297,36 @@ async def update_prices():
                     "pnl": trader.pnl[ex]
                 }
 
+            save_state(trader)  # persist state
             await asyncio.sleep(1)
+
+# =========================
+# DASHBOARD
+# =========================
+async def dashboard_loop():
+    while True:
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print(f"⏱ {datetime.now().strftime('%H:%M:%S')}")
+        print(f"💰 Balance: {trader.balance:.2f} USD | Total PnL: {trader.total_pnl():.2f} USD | Next Size: {trader.next_size:.4f} BTC")
+        print("-"*70)
+        print("Exchange | Price | Position | PnL | Prediction HMA | Prediction HMA2")
+        for ex, data in latest_results.items():
+            price = data.get("price", 0)
+            pos = data.get("position", "-")
+            pnl = data.get("pnl", 0)
+            pred1 = data.get("prediction_hma", 0)
+            pred2 = data.get("prediction_hma2", 0)
+            print(f"{ex:<10} {price:>10.2f} {pos:^8} {pnl:>8.2f} {pred1:>12.2f} {pred2:>12.2f}")
+        print("-"*70)
+        print("Last 5 Trades:")
+        for t in list(trader.trade_history)[-5:]:
+            print(f"{t['time']} | {t['exchange']:<8} | {t['side']:<4} | {t['price']:.2f} | {t['size']:.4f} BTC | PnL: {t['pnl']}")
+        await asyncio.sleep(1)
 
 # =========================
 # FASTAPI
 # =========================
+logging.getLogger("uvicorn").setLevel(logging.CRITICAL)  # suppress logs
 app = FastAPI(title="BTC Live Microprice API")
 
 @app.get("/live")
@@ -290,46 +341,16 @@ async def live_data():
     })
 
 # =========================
-# SILENT FASTAPI
-# =========================
-import logging
-logging.getLogger("uvicorn").setLevel(logging.CRITICAL)  # suppress logs
-
-# =========================
-# CONSOLE DASHBOARD
-# =========================
-async def dashboard_loop():
-    while True:
-        os.system('cls' if os.name == 'nt' else 'clear')
-        print(f"⏱ {datetime.now().strftime('%H:%M:%S')}")
-        print(f"💰 Balance: {trader.balance:.2f} USD | Total PnL: {trader.total_pnl():.2f} USD | Next Size: {trader.next_size:.4f} BTC")
-        print("-"*60)
-        print("Exchange | Price | Position | PnL | Prediction HMA | Prediction HMA2")
-        for ex, data in latest_results.items():
-            price = data.get("price")
-            pos = data.get("position")
-            pnl = data.get("pnl")
-            pred1 = data.get("prediction_hma")
-            pred2 = data.get("prediction_hma2")
-            print(f"{ex:<10} {price:>10.2f} {pos:^8} {pnl:>8.2f} {pred1:>12.2f} {pred2:>12.2f}")
-        print("-"*60)
-        print("Last 5 Trades:")
-        for t in list(trader.trade_history)[-5:]:
-            print(f"{t['time']} | {t['exchange']:<8} | {t['side']:<4} | {t['price']:.2f} | {t['size']:.4f} BTC | PnL: {t['pnl']}")
-        await asyncio.sleep(1)
-
-# =========================
-# MAIN ENTRY
+# MAIN
 # =========================
 async def main():
-    # Start background tasks
     asyncio.create_task(update_prices())
     asyncio.create_task(dashboard_loop())
 
-    # Start FastAPI silently
     public_url = ngrok.connect(8000, "http")
     print(f"🚀 Public URL: {public_url}")
-    config = uvicorn.Config(app=app, host="0.0.0.0", port=8000, log_level="critical")  # silent
+
+    config = uvicorn.Config(app=app, host="0.0.0.0", port=8000, log_level="critical")
     server = uvicorn.Server(config)
     await server.serve()
 
