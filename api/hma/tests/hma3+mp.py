@@ -1,4 +1,4 @@
-
+#!pip install pyngrok
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
@@ -15,6 +15,9 @@ import uvicorn
 import os
 import json
 import logging
+
+import nest_asyncio
+nest_asyncio.apply()
 
 # =========================
 # NGROK
@@ -91,7 +94,7 @@ MODELS = {
 # PAPER TRADER WITH DCA LOGIC
 # =========================
 class PaperTrader:
-    def __init__(self, balance=100):
+    def __init__(self, balance=1500000000):
         self.initial_balance = balance
         self.balance = balance
 
