@@ -1,15 +1,3 @@
-adjust the html to it
-  self.trade_history.append({
-                "exchange": ex,
-                "type": "ADD",
-                "side": side.upper(),
-                "price": price,
-                "size": added_size,              # size of THIS add
-                "total_added": total_added,      # ✅ cumulative added size
-                "pnl": None,
-                "time": datetime.now().strftime("%H:%M:%S")
-            })
-
 # live_table_ngrok_fixed.py
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
@@ -98,67 +86,37 @@ async function updateTable() {
     const res = await fetch('/data');
     const data = await res.json();
 
-    // Update main panel
-    document.getElementById('timestamp').textContent = data.timestamp;
-    document.getElementById('balance').textContent = data.balance.toFixed(2);
-    document.getElementById('total_pnl').textContent = data.total_pnl.toFixed(2);
-    document.getElementById('total_pnl').className = data.total_pnl >= 0 ? 'positive' : 'negative';
-
-    // Update current trades table
-    const tbody = document.querySelector('#liveTable tbody');
-    tbody.innerHTML = '';
-    for (const [exchange, info] of Object.entries(data.exchanges)) {
-      const row = document.createElement('tr');
-      row.innerHTML = `
-        <td>${exchange}</td>
-        <td>${info.price.toFixed(2)}</td>
-        <td>${info.prediction ? info.prediction.toFixed(2) : '-'}</td>
-        <td>${info.position}</td>
-        <td class="${info.pnl >= 0 ? 'positive' : 'negative'}">${info.pnl.toFixed(6)}</td>
-      `;
-      tbody.appendChild(row);
-    }
-
-    // Update trade history table
     const thBody = document.querySelector('#tradeHistoryTable tbody');
     thBody.innerHTML = '';
+
     for (const trade of data.last_trades) {
-  const row = document.createElement('tr');
+      const row = document.createElement('tr');
 
-  const pnlStr =
-    trade.pnl !== null ? trade.pnl.toFixed(6) : '-';
+      row.innerHTML = `
+        <td>${trade.time}</td>
+        <td>${trade.exchange}</td>
+        <td>${trade.type}</td>
+        <td>${trade.side}</td>
+        <td>${Number(trade.price).toFixed(2)}</td>
+        <td>${trade.size !== null ? Number(trade.size).toFixed(8) : '-'}</td>
+        <td>${trade.total_added !== null ? Number(trade.total_added).toFixed(8) : '-'}</td>
+        <td class="${trade.pnl >= 0 ? 'positive' : 'negative'}">
+          ${trade.pnl !== null ? Number(trade.pnl).toFixed(6) : '-'}
+        </td>
+      `;
 
-  const sizeStr =
-    trade.type === "ADD" ? trade.size.toFixed(8) : '-';
+      thBody.appendChild(row);
+    }
 
-  const totalAddedStr =
-    trade.type === "ADD" ? trade.total_added.toFixed(8) : '-';
-
-  row.innerHTML = `
-    <td>${trade.time}</td>
-    <td>${trade.exchange}</td>
-    <td>
-      ${trade.type}
-      ${trade.type === "ADD" ? `<br><small>+${sizeStr}</small>` : ''}
-    </td>
-    <td>${trade.side}</td>
-    <td>${trade.price.toFixed(2)}</td>
-    <td>${sizeStr}</td>
-    <td>${totalAddedStr}</td>
-    <td class="${trade.pnl >= 0 ? 'positive' : 'negative'}">${pnlStr}</td>
-  `;
-
-  thBody.appendChild(row);
+  } catch (err) {
+    console.error(err);
+  }
 }
-
-
-  } catch(err) { console.error(err); }
-}
-
 // Update every second
 setInterval(updateTable, 1000);
 updateTable();
 </script>
+
 </body>
 </html>
 """
