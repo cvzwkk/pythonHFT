@@ -204,9 +204,6 @@ latest_results = {}
 # =========================
 # BACKGROUND PRICE UPDATES
 # =========================
-# =========================
-# BACKGROUND PRICE UPDATES (HMA + ZLEMA)
-# =========================
 async def update_prices():
     global latest_results
     async with aiohttp.ClientSession() as session:
@@ -214,55 +211,38 @@ async def update_prices():
             results = await asyncio.gather(*[
                 fetch_price(e, u, session) for e, u in ORDERBOOK_APIS.items()
             ])
-
             for ex, price in results:
                 if price is not None:
-                    # Update history
                     history[ex].append(price)
-                    hist_list = list(history[ex])
-
-                    # Compute predictions
-                    hma_pred = MODELS["HMA"](hist_list) if len(hist_list) >= 12 else None
-                    zlema_pred = MODELS["ZLEMA"](hist_list, period=10) if len(hist_list) >= 20 else None
-
+                    #pred = MODELS["HMA"](list(history[ex])) if len(history[ex]) >= 12 else None
+                    pred = MODELS["ZLEMA"](list(history[ex]), period=38)   
                     pos = trader.positions[ex]
                     status = pos["side"].upper() if pos else "-"
-
-                    # Calculate volatility-based threshold
-                    vol = np.std(log_returns(np.array(hist_list))) + 1e-8
-                    threshold = price * vol * 0.2
-
-                    # ---- TRADE LOGIC ----
-                    if pos is None:
-                        # Open trades only if both signals align
-                        if hma_pred is not None and zlema_pred is not None:
-                            if zlema_pred > price + threshold and hma_pred > price:
+                    if pred is not None:
+                        vol = np.std(log_returns(np.array(history[ex]))) + 1e-8
+                        threshold = price * vol * 0.2
+                        if pos is None:
+                            if pred > price + threshold:
                                 trader.open_trade(ex, "buy", price)
                                 status = "BUY"
-                            elif zlema_pred < price - threshold and hma_pred < price:
+                            elif pred < price - threshold:
                                 trader.open_trade(ex, "sell", price)
                                 status = "SELL"
-                    else:
-                        # Close trades when ZLEMA reverses
-                        if pos["side"] == "buy" and zlema_pred < price - threshold:
-                            trader.close_trade(ex, price)
-                            status = "-"
-                        elif pos["side"] == "sell" and zlema_pred > price + threshold:
-                            trader.close_trade(ex, price)
-                            status = "-"
-
-                    # Update results
+                        else:
+                            if pos["side"] == "buy" and pred < price - threshold:
+                                trader.close_trade(ex, price)
+                                status = "-"
+                            elif pos["side"] == "sell" and pred > price + threshold:
+                                trader.close_trade(ex, price)
+                                status = "-"
                     latest_results[ex] = {
                         "price": price,
-                        "HMA": hma_pred,
-                        "ZLEMA": zlema_pred,
+                        "prediction": pred,
                         "position": status,
                         "pnl": trader.pnl[ex]
                     }
-
             await asyncio.sleep(1)
-
-
+            
 # =========================
 # FASTAPI
 # =========================
