@@ -74,6 +74,37 @@ def predict_hma_robust(prices, period=58):
     forecast = hma + slope * (1 + vol_boost) + momentum * 0.5 + mr_factor * vol * 0.3
     return safe_return(forecast)
 
+
+def predict_hma_robust2(prices, period=10):
+    if len(prices) < 4:
+        return None
+    prices = np.array(prices, dtype=np.float64)
+    prices = pd.Series(prices).ffill().bfill().values
+
+    def wma(arr, n):
+        n = min(len(arr), n)
+        weights = np.arange(1, n + 1)
+        return np.dot(arr[-n:], weights) / weights.sum()
+
+    half = max(2, period // 2)
+    half = min(half, len(prices))
+    period = min(period, len(prices))
+
+    hma = 2 * wma(prices, half) - wma(prices, period)
+
+    slope_len = min(half, len(prices)-1)
+    slope = np.polyfit(np.arange(slope_len+1), prices[-slope_len-1:], 1)[0]
+
+    returns = np.diff(np.log(prices + 1e-9))
+    momentum = np.sum(np.exp(-np.linspace(0,3,len(returns))) * returns) if len(returns) > 1 else 0.0
+    vol = np.std(returns[-half:]) + 1e-9
+    vol_boost = np.tanh(vol * 80)
+    log_prices = np.log(prices + 1e-9)
+    z = (log_prices[-1] - log_prices.mean()) / (np.std(log_prices) + 1e-9)
+    mr_factor = np.tanh(-0.3 * z)
+    forecast = hma + slope * (1 + vol_boost) + momentum * 0.5 + mr_factor * vol * 0.3
+    return safe_return(forecast)
+    
 # =========================
 # ZLEMA MODEL
 # =========================
@@ -86,7 +117,8 @@ def zlema_series(prices, period=38):
     lag = (period - 1) // 2
     alpha = 2 / (period + 1)
     
-    zlema = np.zeros_like(prices)
+    zlema = np.zeros
+    _like(prices)
     zlema[0] = prices[0]
     
     for i in range(1, len(prices)):
@@ -101,7 +133,8 @@ def zlema_series(prices, period=38):
 
 MODELS = {
     "HMA": predict_hma_robust,
-    "ZLEMA": zlema_series
+    "HMA2": predict_hma_robust2,
+    #"ZLEMA": zlema_series
 
 }
 
@@ -214,7 +247,7 @@ async def update_prices():
             for ex, price in results:
                 if price is not None:
                     history[ex].append(price)
-                    pred = MODELS["HMA"](list(history[ex])) if len(history[ex]) >= 12 else None
+                    pred = MODELS["HMA","HMA2"](list(history[ex])) if len(history[ex]) >= 12 else None
                     #pred = MODELS["ZLEMA"](list(history[ex]), period=38)   
                     pos = trader.positions[ex]
                     status = pos["side"].upper() if pos else "-"
