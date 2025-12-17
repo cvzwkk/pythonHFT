@@ -94,7 +94,7 @@ MODELS = {
 # PAPER TRADER WITH DCA LOGIC
 # =========================
 class PaperTrader:
-    def __init__(self, balance=1500000000):
+    def __init__(self, balance=150000000):
         self.initial_balance = balance
         self.balance = balance
 
@@ -184,87 +184,92 @@ class PaperTrader:
     # =========================
     # OPEN / ADD TRADE
     # =========================
-    def open_trade(self, ex, side, price):
-        if self.trading_halted:
-            return
+def open_trade(self, ex, side, price):
+    if self.trading_halted:
+        return
 
-        pos = self.positions[ex]
+    pos = self.positions[ex]
 
-        # ---------- NEW ENTRY ----------
-        if pos is None:
-            size = self.entry_size
-            usd_value = size * price
+    # =========================
+    # NEW ENTRY
+    # =========================
+    if pos is None:
+        size = self.entry_size
+        usd_value = size * price
 
-            self.positions[ex] = {
-                "side": side,
-                "avg_entry": price,
-                "total_size": size,
-                "total_usd_committed": usd_value,
-                "next_add_price": (
-                    price * (1 - self.adjust_step_pct)
-                    if side == "buy"
-                    else price * (1 + self.adjust_step_pct)
-                ),
-                "adds": 0
-            }
-
-            self.trade_history.append({
-                "exchange": ex,
-                "type": "ENTRY",
-                "side": side.upper(),
-                "price": price,
-                "size": size,
-                "usd_value": usd_value,
-                "pnl": None,
-                "time": datetime.now().strftime("%H:%M:%S")
-            })
-            return
-
-        # ---------- HARD ADD LIMIT ----------
-        if pos["adds"] >= self.max_adds:
-            self.force_close(ex, price, "MAX_ADDS")
-            return
-
-        # ---------- SCALE IN ----------
-        side = pos["side"]
-        should_add = (
-            (side == "buy" and price <= pos["next_add_price"]) or
-            (side == "sell" and price >= pos["next_add_price"])
-        )
-
-        if not should_add:
-            return
-
-        added_size = pos["total_size"] * self.add_ratio
-        usd_added = added_size * price
-
-        new_size = pos["total_size"] + added_size
-        new_usd = pos["total_usd_committed"] + usd_added
-
-        pos["avg_entry"] = (
-            pos["avg_entry"] * pos["total_size"] +
-            price * added_size
-        ) / new_size
-
-        pos["total_size"] = new_size
-        pos["total_usd_committed"] = new_usd
-        pos["adds"] += 1
-        pos["next_add_price"] = (
-            price * (1 - self.adjust_step_pct)
-            if side == "buy"
-            else price * (1 + self.adjust_step_pct)
-        )
+        self.positions[ex] = {
+            "side": side,
+            "avg_entry": price,
+            "total_size": size,
+            "adds": 0,
+            "next_add_price": (
+                price * (1 - self.adjust_step_pct)
+                if side == "buy"
+                else price * (1 + self.adjust_step_pct)
+            )
+        }
 
         self.trade_history.append({
             "exchange": ex,
-            "type": "ADD",
+            "type": "ENTRY",
             "side": side.upper(),
             "price": price,
-            "size": added_size,
-            "usd_value": usd_added,
+            "size": size,
+            "usd_value": usd_value,
             "pnl": None,
             "time": datetime.now().strftime("%H:%M:%S")
         })
+        return
+
+    # =========================
+    # HARD ADD LIMIT
+    # =========================
+    if pos["adds"] >= self.max_adds:
+        self.force_close(ex, price, "MAX_ADDS")
+        return
+
+    side = pos["side"]
+
+    should_add = (
+        (side == "buy" and price <= pos["next_add_price"]) or
+        (side == "sell" and price >= pos["next_add_price"])
+    )
+
+    if not should_add:
+        return
+
+    # =========================
+    # SCALE-IN (BTC BASED)
+    # =========================
+    added_btc = pos["total_size"] * self.add_ratio
+    new_total_btc = pos["total_size"] + added_btc
+
+    pos["avg_entry"] = (
+        pos["avg_entry"] * pos["total_size"]
+        + price * added_btc
+    ) / new_total_btc
+
+    pos["total_size"] = new_total_btc
+    pos["adds"] += 1
+
+    pos["next_add_price"] = (
+        price * (1 - self.adjust_step_pct)
+        if side == "buy"
+        else price * (1 + self.adjust_step_pct)
+    )
+
+    self.trade_history.append({
+        "exchange": ex,
+        "type": "ADD",
+        "side": side.upper(),
+        "price": price,
+        "btc_added": added_btc,
+        "total_btc": new_total_btc,
+        "pnl": None,
+        "time": datetime.now().strftime("%H:%M:%S")
+    })
+
+
 
     # =========================
     # TAKE PROFIT
@@ -348,7 +353,7 @@ latest_results = {}
 # =========================
 # TRADING LOOP
 # =========================
-MAX_OPEN_TRADES = 4
+MAX_OPEN_TRADES = 3
 
 async def update_prices():
     global latest_results
