@@ -38,24 +38,28 @@ HTML_PAGE = """
 <style>
   body { font-family: Arial; margin: 20px; }
   table { border-collapse: collapse; width: 100%; margin-bottom: 30px; }
-  th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+  th, td { border: 1px solid #ccc; padding: 6px; text-align: center; }
   th { background-color: #f4f4f4; }
   .negative { color: red; }
   .positive { color: green; }
 </style>
 </head>
 <body>
+
 <h2>Live Trading Data</h2>
 <p>Last updated: <span id="timestamp">-</span></p>
-<p>Balance: <span id="balance">-</span> | Total PnL: <span id="total_pnl">-</span></p>
+<p>
+  Balance: <b><span id="balance">-</span></b> |
+  Total PnL: <b><span id="total_pnl">-</span></b>
+</p>
 
-<!-- Current Trades Table -->
+<!-- CURRENT STATE -->
 <table id="liveTable">
   <thead>
     <tr>
       <th>Exchange</th>
       <th>Price</th>
-      <th>Prediction</th>
+      <th>Prediction HMA</th>
       <th>Position</th>
       <th>PnL</th>
     </tr>
@@ -65,83 +69,81 @@ HTML_PAGE = """
 
 <h2>Last 50 Trades</h2>
 <table id="tradeHistoryTable">
-<thead>
-  <tr>
-    <th>Time</th>
-    <th>Exchange</th>
-    <th>Type</th>
-    <th>Side</th>
-    <th>Price</th>
-    <th>Size</th>
-    <th>Total Added</th>
-    <th>PnL</th>
-  </tr>
-</thead>
+  <thead>
+    <tr>
+      <th>Time</th>
+      <th>Exchange</th>
+      <th>Type</th>
+      <th>Side</th>
+      <th>Price</th>
+      <th>Added BTC</th>
+      <th>Total BTC</th>
+      <th>PnL</th>
+    </tr>
+  </thead>
   <tbody></tbody>
 </table>
 
 <script>
-async function updateTable() {
+async function fetchData() {
   try {
-    const res = await fetch('/data');
+    const res = await fetch("/proxy");
     const data = await res.json();
 
-    // Update main panel
-    document.getElementById('timestamp').textContent = data.timestamp;
-    document.getElementById('balance').textContent = data.balance.toFixed(2);
-    document.getElementById('total_pnl').textContent = data.total_pnl.toFixed(2);
-    document.getElementById('total_pnl').className = data.total_pnl >= 0 ? 'positive' : 'negative';
+    document.getElementById("timestamp").textContent = data.timestamp;
+    document.getElementById("balance").textContent = data.balance.toFixed(2);
+    document.getElementById("total_pnl").textContent = data.total_pnl.toFixed(2);
 
-    // Update current trades table
-    const tbody = document.querySelector('#liveTable tbody');
-    tbody.innerHTML = '';
-    for (const [exchange, info] of Object.entries(data.exchanges)) {
-      const row = document.createElement('tr');
-      row.innerHTML = `
-        <td>${exchange}</td>
-        <td>${info.price.toFixed(2)}</td>
-        <td>${info.prediction ? info.prediction.toFixed(2) : '-'}</td>
-        <td>${info.position}</td>
-        <td class="${info.pnl >= 0 ? 'positive' : 'negative'}">${info.pnl.toFixed(6)}</td>
-      `;
-      tbody.appendChild(row);
-    }
+    // ======================
+    // LIVE TABLE
+    // ======================
+    const tbody = document.querySelector("#liveTable tbody");
+    tbody.innerHTML = "";
 
-    /* ============================
-       TRADE HISTORY (LAST 50)
-    ============================ */
-    const thBody = document.querySelector('#tradeHistoryTable tbody');
-    thBody.innerHTML = '';
-
-    for (const trade of data.last_trades || []) {
-      const row = document.createElement('tr');
-
-      row.innerHTML = `
-        <td>${trade.time}</td>
-        <td>${trade.exchange}</td>
-        <td>${trade.type}</td>
-        <td>${trade.side}</td>
-        <td>${Number(trade.price).toFixed(2)}</td>
-        <td>${trade.size !== null ? Number(trade.size).toFixed(8) : '-'}</td>
-        <td>${trade.total_added !== null ? Number(trade.total_added).toFixed(8) : '-'}</td>
-        <td class="${trade.pnl >= 0 ? 'positive' : 'negative'}">
-          ${trade.pnl !== null ? Number(trade.pnl).toFixed(6) : '-'}
+    for (const [ex, d] of Object.entries(data.exchanges)) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${ex}</td>
+        <td>${d.price.toFixed(2)}</td>
+        <td>${d.prediction_hma ? d.prediction_hma.toFixed(2) : "-"}</td>
+        <td>${d.position}</td>
+        <td class="${d.pnl >= 0 ? "positive" : "negative"}">
+          ${d.pnl.toFixed(2)}
         </td>
       `;
-
-      thBody.appendChild(row);
+      tbody.appendChild(tr);
     }
 
+    // ======================
+    // TRADE HISTORY
+    // ======================
+    const tradeBody = document.querySelector("#tradeHistoryTable tbody");
+    tradeBody.innerHTML = "";
+
+    data.last_trades.slice(-50).reverse().forEach(t => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${t.time || "-"}</td>
+        <td>${t.exchange}</td>
+        <td>${t.type}</td>
+        <td>${t.side}</td>
+        <td>${t.price ? t.price.toFixed(2) : "-"}</td>
+        <td>${t.btc_added ? t.btc_added.toFixed(8) : "-"}</td>
+        <td>${t.total_btc ? t.total_btc.toFixed(8) : "-"}</td>
+        <td class="${(t.pnl || 0) >= 0 ? "positive" : "negative"}">
+          ${t.pnl !== null && t.pnl !== undefined ? t.pnl.toFixed(4) : "-"}
+        </td>
+      `;
+      tradeBody.appendChild(tr);
+    });
+
   } catch (err) {
-    console.error("LIVE UPDATE ERROR:", err);
+    console.error(err);
   }
 }
 
-/* ============================
-   HARD 1s LIVE REFRESH
-============================ */
-setInterval(updateTable, 1000);
-updateTable();
+setInterval(fetchData, 1000);
+fetchData();
 </script>
 
 </body>
