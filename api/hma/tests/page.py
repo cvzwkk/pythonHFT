@@ -86,10 +86,47 @@ async function updateTable() {
     const res = await fetch('/data');
     const data = await res.json();
 
+    /* ============================
+       TOP PANEL (LIVE)
+    ============================ */
+    document.getElementById('timestamp').textContent = data.timestamp ?? '-';
+
+    document.getElementById('balance').textContent =
+      Number(data.balance).toFixed(2);
+
+    const totalPnlEl = document.getElementById('total_pnl');
+    totalPnlEl.textContent = Number(data.total_pnl).toFixed(6);
+    totalPnlEl.className = data.total_pnl >= 0 ? 'positive' : 'negative';
+
+    /* ============================
+       LIVE POSITIONS TABLE
+    ============================ */
+    const liveBody = document.querySelector('#liveTable tbody');
+    liveBody.innerHTML = '';
+
+    for (const [exchange, info] of Object.entries(data.exchanges || {})) {
+      const row = document.createElement('tr');
+
+      row.innerHTML = `
+        <td>${exchange}</td>
+        <td>${Number(info.price).toFixed(2)}</td>
+        <td>${info.prediction !== null ? Number(info.prediction).toFixed(2) : '-'}</td>
+        <td>${info.position}</td>
+        <td class="${info.pnl >= 0 ? 'positive' : 'negative'}">
+          ${Number(info.pnl).toFixed(6)}
+        </td>
+      `;
+
+      liveBody.appendChild(row);
+    }
+
+    /* ============================
+       TRADE HISTORY (LAST 50)
+    ============================ */
     const thBody = document.querySelector('#tradeHistoryTable tbody');
     thBody.innerHTML = '';
 
-    for (const trade of data.last_trades) {
+    for (const trade of data.last_trades || []) {
       const row = document.createElement('tr');
 
       row.innerHTML = `
@@ -109,10 +146,13 @@ async function updateTable() {
     }
 
   } catch (err) {
-    console.error(err);
+    console.error("LIVE UPDATE ERROR:", err);
   }
 }
-// Update every second
+
+/* ============================
+   HARD 1s LIVE REFRESH
+============================ */
 setInterval(updateTable, 1000);
 updateTable();
 </script>
