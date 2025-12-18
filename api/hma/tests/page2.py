@@ -178,44 +178,111 @@ th { background-color: #f4f4f4; }
 </table>
 
 <h2>Live Orderbook Depth (Aggregated)</h2>
+<h2>Live Orderbook Depth (Aggregated)</h2>
 <div id="orderbookDepth" style="width:100%;height:420px;"></div>
 
 <script>
-let lastSeenTradeTime = null;
-let lastTotalPnl = null;
-let lastExchangePnl = {};
 let depthReady = false;
+let lastBids = [];
+let lastAsks = [];
 
+// Compute cumulative volume
 function cumulative(levels) {
     let sum = 0;
     return levels.map(([p, s]) => { sum += s; return [p, sum]; });
 }
 
+// Compare old vs new levels and mark updated points
+function highlightChanges(oldLevels, newLevels) {
+    let colors = new Array(newLevels.length).fill('rgba(0,0,0,0)'); // default transparent
+    const oldMap = new Map(oldLevels.map(([p,s]) => [p,s]));
+
+    newLevels.forEach(([p,s], idx) => {
+        if(!oldMap.has(p) || oldMap.get(p) !== s){
+            colors[idx] = 'yellow'; // highlight updated points
+        }
+    });
+    return colors;
+}
+
+// Render orderbook with flash for changes
 function renderOrderbook(bids, asks) {
     const bidCum = cumulative(bids);
     const askCum = cumulative(asks);
 
-    const bidTrace = { x: bidCum.map(d=>d[0]), y: bidCum.map(d=>d[1]),
-        type:"scatter", mode:"lines", fill:"tozeroy", name:"Bids",
-        line:{color:"rgb(0,180,0)", width:2}, fillcolor:"rgba(0,180,0,0.35)" };
+    const bidColors = highlightChanges(lastBids, bids);
+    const askColors = highlightChanges(lastAsks, asks);
 
-    const askTrace = { x: askCum.map(d=>d[0]), y: askCum.map(d=>d[1]),
-        type:"scatter", mode:"lines", fill:"tozeroy", name:"Asks",
-        line:{color:"rgb(220,0,0)", width:2}, fillcolor:"rgba(220,0,0,0.35)" };
+    const bidTrace = { 
+        x: bidCum.map(d=>d[0]), 
+        y: bidCum.map(d=>d[1]),
+        type:"scatter", mode:"lines+markers", fill:"tozeroy", name:"Bids",
+        line:{color:"rgb(0,180,0)", width:2}, 
+        marker:{color:bidColors, size:6},
+        fillcolor:"rgba(0,180,0,0.35)" 
+    };
 
-    const layout = { margin:{l:60,r:20,t:20,b:40},
-        xaxis:{title:"Price"}, yaxis:{title:"Cumulative BTC"},
+    const askTrace = { 
+        x: askCum.map(d=>d[0]), 
+        y: askCum.map(d=>d[1]),
+        type:"scatter", mode:"lines+markers", fill:"tozeroy", name:"Asks",
+        line:{color:"rgb(220,0,0)", width:2}, 
+        marker:{color:askColors, size:6},
+        fillcolor:"rgba(220,0,0,0.35)" 
+    };
+
+    const layout = { 
+        margin:{l:60,r:20,t:20,b:40},
+        xaxis:{title:"Price"}, 
+        yaxis:{title:"Cumulative BTC"},
         legend:{orientation:"h", y:1.15},
-        transition:{duration:400,easing:"cubic-in-out"} };
+        transition:{duration:400,easing:"cubic-in-out"} 
+    };
 
-    if (!depthReady) {
-        Plotly.newPlot("orderbookDepth",[bidTrace,askTrace],layout,{displayModeBar:false,responsive:true});
+    if(!depthReady){
+        Plotly.newPlot("orderbookDepth",[bidTrace, askTrace], layout, {displayModeBar:false,responsive:true});
         depthReady = true;
     } else {
-        Plotly.react("orderbookDepth",[bidTrace,askTrace],layout);
+        Plotly.react("orderbookDepth",[bidTrace, askTrace], layout);
     }
+
+    // Remove flash after 400ms
+    setTimeout(()=>{
+        bidTrace.marker.color = new Array(bids.length).fill('rgb(0,180,0)');
+        askTrace.marker.color = new Array(asks.length).fill('rgb(220,0,0)');
+        Plotly.react("orderbookDepth",[bidTrace, askTrace], layout);
+    }, 400);
+
+    lastBids = bids;
+    lastAsks = asks;
 }
 
+// Fetch /orderbook from backend
+async function updateOrderbook() {
+    try{
+        const obRes = await fetch('/orderbook'); 
+        const obData = await obRes.json();
+
+        let bids=[], asks=[];
+        for(const ex of Object.values(obData)){
+            if(ex.bids) bids.push(...ex.bids);
+            if(ex.asks) asks.push(...ex.asks);
+        }
+
+        bids = bids.sort((a,b)=>b[0]-a[0]).slice(0,30);
+        asks = asks.sort((a,b)=>a[0]-b[0]).slice(0,30);
+
+        if(bids.length && asks.length) renderOrderbook(bids, asks);
+
+    }catch(e){ console.error("ORDERBOOK ERROR:", e); }
+}
+
+// Update every 500ms for smooth animation
+setInterval(updateOrderbook, 500);
+updateOrderbook();
+</script>
+
+<script>
 async function updateTable() {
     try {
         const res = await fetch('/data'); const data = await res.json();
