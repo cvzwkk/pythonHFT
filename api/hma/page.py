@@ -10,7 +10,7 @@ import uvicorn
 # =============================
 # CONFIG
 # =============================
-NGROK_AUTH_TOKEN = "36xkALQDnxGLwLU3o1CIo2SKsvt_7cUEHiQnMbNC2Snv5bfKk"
+NGROK_AUTH_TOKEN = "YOUR KEY NGROK 2 HERE"
 NGROK_DASHBOARD_PORT = 4041
 LOCAL_PORT = 8080
 
