@@ -39,9 +39,7 @@ body { font-family: Arial; margin: 20px; }
 table {
   border-collapse: collapse;
   width: 100%;
-  margin-bottom: 30px;
-}
-
+  margin-bottom: 30
 th, td {
   border: 1px solid #ccc;
   padding: 8px;
@@ -138,72 +136,7 @@ Total PnL: <span id="total_pnl">-</span>
 </thead>
 <tbody></tbody>
 </table>
-
-<script>
-let lastSeenTradeTime = null;
-let lastTotalPnl = null;
-let lastExchangePnl = {};
-
-function heatColor(size, maxSize, side) {
-  if (maxSize === 0) return 'transparent';
-
-  const intensity = Math.min(Math.abs(size) / maxSize, 1);
-  const alpha = 0.15 + intensity * 0.45;
-
-  return side === 'LONG'
-    ? `rgba(0, 200, 0, ${alpha})`
-    : `rgba(200, 0, 0, ${alpha})`;
-}
-
-async function updateTable() {
-  try {
-    const res = await fetch('/data');
-    const data = await res.json();
-
-    /* =========================
-       HEADER
-    ========================= */
-    document.getElementById('timestamp').textContent = data.timestamp ?? '-';
-    document.getElementById('balance').textContent =
-      Number(data.balance ?? 0).toFixed(2);
-
-    const totalPnlEl = document.getElementById('total_pnl');
-    const totalPnl = Number(data.total_pnl ?? 0);
-
-    totalPnlEl.textContent = totalPnl.toFixed(6);
-    totalPnlEl.className = totalPnl >= 0 ? 'positive' : 'negative';
-
-    if (lastTotalPnl !== null) {
-      totalPnlEl.classList.add(
-        totalPnl > lastTotalPnl ? 'pnl-up' : 'pnl-down'
-      );
-    }
-    lastTotalPnl = totalPnl;
-
-    /* =========================
-       LIVE POSITIONS
-    ========================= */
-    const liveBody = document.querySelector('#liveTable tbody');
-    liveBody.innerHTML = '';
-
-    const sizes = Object.values(data.exchanges || {})
-      .map(v => Math.abs(v.size ?? 0));
-    const maxSize = Math.max(...sizes, 0.00000001);
-
-    for (const [exchange, info] of Object.entries(data.exchanges || {})) {
-      const pnl = Number(info.pnl ?? 0);
-      const size = Number(info.size ?? 0);
-      const side = size >= 0 ? 'LONG' : 'SHORT';
-
-      let pnlFlash = '';
-      if (lastExchangePnl[exchange] !== undefined) {
-        pnlFlash = pnl > lastExchangePnl[exchange] ? 'pnl-up' : 'pnl-down';
-      }
-      lastExchangePnl[exchange] = pnl;
-
-      const row = document.createElement('tr');
-      row.innerHTML = `
-        <td>${exchange}</td>
+exchange}</td>
         <td>${Number(info.price ?? 0).toFixed(2)}</td>
         <td>${info.prediction !== null ? Number(info.prediction).toFixed(2) : '-'}</td>
         <td>${side}</td>
@@ -213,59 +146,210 @@ async function updateTable() {
         </td>
       `;
 
-      const posCell = row.querySelector('.position-cell');
-      posCell.style.backgroundColor = heatColor(size, maxSize, side);
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BTC Microprice DCA Dashboard</title>
 
+<style>
+body {
+  font-family: Arial, sans-serif;
+  margin: 20px;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-bottom: 30px;
+}
+
+th, td {
+  border: 1px solid #ccc;
+  padding: 6px;
+  text-align: center;
+  font-size: 13px;
+}
+
+th {
+  background: #f4f4f4;
+}
+
+.positive { color: green; }
+.negative { color: red; }
+
+/* ========= ANIMATIONS ========= */
+@keyframes addFlash {
+  from { background-color: #e0f7ff; }
+  to { background-color: transparent; }
+}
+
+@keyframes closeFlash {
+  from { background-color: #ffe0e0; }
+  to { background-color: transparent; }
+}
+
+.add-trade { animation: addFlash 0.8s ease-out; }
+.close-trade { animation: closeFlash 0.8s ease-out; }
+
+@keyframes pnlUp {
+  from { background-color: #ccffcc; }
+  to { background-color: transparent; }
+}
+@keyframes pnlDown {
+  from { background-color: #ffcccc; }
+  to { background-color: transparent; }
+}
+
+.pnl-up { animation: pnlUp 0.6s ease-out; }
+.pnl-down { animation: pnlDown 0.6s ease-out; }
+</style>
+</head>
+
+<body>
+
+<h2>BTC Microprice DCA Engine</h2>
+
+<p>
+<b>Last Update:</b> <span id="timestamp">-</span><br>
+<b>Balance (USD):</b> <span id="balance">-</span><br>
+<b>Total PnL:</b> <span id="total_pnl">-</span>
+</p>
+
+<!-- ================= LIVE EXCHANGES ================= -->
+<h3>Live Exchanges</h3>
+
+<table id="liveTable">
+<thead>
+<tr>
+  <th>Exchange</th>
+  <th>Price</th>
+  <th>HMA</th>
+  <th>HMA2</th>
+  <th>Position</th>
+  <th>Entries</th>
+  <th>Adds</th>
+  <th>PnL</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+
+<!-- ================= TRADE HISTORY ================= -->
+<h3>Last Trades (Newest First)</h3>
+
+<table id="tradeTable">
+<thead>
+<tr>
+  <th>Time</th>
+  <th>Exchange</th>
+  <th>Type</th>
+  <th>Side</th>
+  <th>Price</th>
+  <th>BTC</th>
+  <th>Total BTC</th>
+  <th>PnL</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+
+<script>
+let lastPnl = {};
+let lastTradeTime = null;
+
+async function updateDashboard() {
+  try {
+    const res = await fetch("/live");
+    const data = await res.json();
+
+    /* ========= HEADER ========= */
+    document.getElementById("timestamp").textContent =
+      new Date(data.timestamp).toLocaleTimeString();
+
+    document.getElementById("balance").textContent =
+      Number(data.balance_usd).toFixed(2);
+
+    const pnlEl = document.getElementById("total_pnl");
+    pnlEl.textContent = Number(data.total_pnl_usd).toFixed(6);
+    pnlEl.className =
+      data.total_pnl_usd >= 0 ? "positive" : "negative";
+
+    /* ========= LIVE TABLE ========= */
+    const liveBody = document.querySelector("#liveTable tbody");
+    liveBody.innerHTML = "";
+
+    for (const [ex, info] of Object.entries(data.exchanges || {})) {
+      let pnlClass = "";
+      if (lastPnl[ex] !== undefined) {
+        pnlClass = info.pnl > lastPnl[ex] ? "pnl-up" : "pnl-down";
+      }
+      lastPnl[ex] = info.pnl;
+
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${ex}</td>
+        <td>${Number(info.price).toFixed(2)}</td>
+        <td>${info.prediction_hma !== null ? info.prediction_hma.toFixed(2) : "-"}</td>
+        <td>${info.prediction_hma2 !== null ? info.prediction_hma2.toFixed(2) : "-"}</td>
+        <td>${info.position}</td>
+        <td>${info.entries}</td>
+        <td>${info.adds}</td>
+        <td class="${info.pnl >= 0 ? "positive" : "negative"} ${pnlClass}">
+          ${info.pnl.toFixed(6)}
+        </td>
+      `;
       liveBody.appendChild(row);
     }
 
-    /* =========================
-       TRADE HISTORY
-    ========================= */
-    const thBody = document.querySelector('#tradeHistoryTable tbody');
-    thBody.innerHTML = '';
+    /* ========= TRADE HISTORY ========= */
+    const tradeBody = document.querySelector("#tradeTable tbody");
+    tradeBody.innerHTML = "";
 
     const trades = [...(data.last_trades || [])].reverse();
 
-    for (const trade of trades) {
-      const row = document.createElement('tr');
+    for (const t of trades) {
+      const row = document.createElement("tr");
 
-      if (lastSeenTradeTime && trade.time > lastSeenTradeTime) {
-        if (trade.type === 'CLOSE') {
-          row.classList.add(
-            (trade.pnl ?? 0) >= 0 ? 'close-win' : 'close-loss'
-          );
-        } else {
-          row.classList.add('add-trade');
-        }
+      let anim = "";
+      if (lastTradeTime && t.time > lastTradeTime) {
+        if (t.type === "ADD") anim = "add-trade";
+        if (t.type.startsWith("FORCE_EXIT") || t.type === "TP")
+          anim = "close-trade";
       }
 
+      row.className = anim;
+
+      const btc =
+        t.btc ?? t.btc_added ?? "-";
+
       row.innerHTML = `
-        <td>${trade.time}</td>
-        <td>${trade.exchange}</td>
-        <td>${trade.type}</td>
-        <td>${trade.side}</td>
-        <td>${Number(trade.price ?? 0).toFixed(2)}</td>
-        <td>${trade.btc_added !== null ? Number(trade.btc_added).toFixed(8) : '-'}</td>
-        <td>${trade.total_btc !== null ? Number(trade.total_btc).toFixed(8) : '-'}</td>
-        <td class="${(trade.pnl ?? 0) >= 0 ? 'positive' : 'negative'}">
-          ${trade.pnl !== null ? Number(trade.pnl).toFixed(6) : '-'}
+        <td>${t.time}</td>
+        <td>${t.exchange}</td>
+        <td>${t.type}</td>
+        <td>${t.side}</td>
+        <td>${Number(t.price).toFixed(2)}</td>
+        <td>${btc !== "-" ? Number(btc).toFixed(8) : "-"}</td>
+        <td>${t.total_btc !== undefined ? Number(t.total_btc).toFixed(8) : "-"}</td>
+        <td class="${t.pnl >= 0 ? "positive" : "negative"}">
+          ${t.pnl !== null ? Number(t.pnl).toFixed(6) : "-"}
         </td>
       `;
-      thBody.appendChild(row);
+
+      tradeBody.appendChild(row);
     }
 
     if (trades.length > 0) {
-      lastSeenTradeTime = trades[0].time;
+      lastTradeTime = trades[0].time;
     }
 
   } catch (err) {
-    console.error("LIVE UPDATE ERROR:", err);
+    console.error("DASHBOARD ERROR:", err);
   }
 }
 
-setInterval(updateTable, 1000);
-updateTable();
+setInterval(updateDashboard, 1000);
+updateDashboard();
 </script>
 
 </body>
