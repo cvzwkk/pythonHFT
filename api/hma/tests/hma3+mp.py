@@ -561,7 +561,6 @@ async def live_data():
 
 async def main():
     asyncio.create_task(update_prices())
-    asyncio.create_task(dashboard_loop())
 
     public_url = ngrok.connect(8000, "http")
     print(f"🚀 Public URL: {public_url}")
