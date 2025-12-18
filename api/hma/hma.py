@@ -27,7 +27,7 @@ nest_asyncio.apply()
 # =========================
 # NGROK
 # =========================
-NGROK_AUTHTOKEN = "36xhpiAn5cRi9ObeqeKYdJBZ13k_3z1GytiAf4Sn3czxWwNBm"
+NGROK_AUTHTOKEN = "YOUR KEY NGROK HERE"
 ngrok.set_auth_token(NGROK_AUTHTOKEN)
 
 # =========================
