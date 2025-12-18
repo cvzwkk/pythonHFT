@@ -32,17 +32,75 @@ HTML_PAGE = """
 <head>
 <meta charset="UTF-8">
 <title>Hull Live Trading Table</title>
+
 <style>
 body { font-family: Arial; margin: 20px; }
-table { border-collapse: collapse; width: 100%; margin-bottom: 30px; }
-th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-bottom: 30px;
+}
+
+th, td {
+  border: 1px solid #ccc;
+  padding: 8px;
+  text-align: center;
+}
+
 th { background-color: #f4f4f4; }
+
 .negative { color: red; }
 .positive { color: green; }
+
+/* =========================
+   ADD TRADE ANIMATION
+========================= */
+@keyframes addFlash {
+  from { background-color: #ffffcc; }
+  to   { background-color: transparent; }
+}
+
+.add-trade {
+  animation: addFlash 0.8s ease-out;
+}
+
+/* =========================
+   CLOSE TRADE ANIMATION
+========================= */
+@keyframes closeWin {
+  from { background-color: #ccffcc; }
+  to   { background-color: transparent; }
+}
+
+@keyframes closeLoss {
+  from { background-color: #ffcccc; }
+  to   { background-color: transparent; }
+}
+
+.close-win  { animation: closeWin 1s ease-out; }
+.close-loss { animation: closeLoss 1s ease-out; }
+
+/* =========================
+   PnL FLASH
+========================= */
+@keyframes pnlUp {
+  from { background-color: #ccffcc; }
+  to   { background-color: transparent; }
+}
+
+@keyframes pnlDown {
+  from { background-color: #ffcccc; }
+  to   { background-color: transparent; }
+}
+
+.pnl-up   { animation: pnlUp 0.6s ease-out; }
+.pnl-down { animation: pnlDown 0.6s ease-out; }
 </style>
 </head>
 
 <body>
+
 <h2>Live Trading Data</h2>
 
 <p>Last updated: <span id="timestamp">-</span></p>
@@ -65,7 +123,7 @@ Total PnL: <span id="total_pnl">-</span>
 <tbody></tbody>
 </table>
 
-<h2>Last 50 Trades</h2>
+<h2>Last 50 Trades (Newest First)</h2>
 
 <table id="tradeHistoryTable">
 <thead>
@@ -84,23 +142,35 @@ Total PnL: <span id="total_pnl">-</span>
 </table>
 
 <script>
+let lastSeenTradeTime = null;
+let lastTotalPnl = null;
+let lastExchangePnl = {};
+
 async function updateTable() {
   try {
     const res = await fetch('/data');
     const data = await res.json();
 
     /* =========================
-       HEADER
+       HEADER PnL FLASH
     ========================= */
     document.getElementById('timestamp').textContent = data.timestamp ?? '-';
-
     document.getElementById('balance').textContent =
       Number(data.balance ?? 0).toFixed(2);
 
     const totalPnlEl = document.getElementById('total_pnl');
-    totalPnlEl.textContent = Number(data.total_pnl ?? 0).toFixed(6);
-    totalPnlEl.className =
-      (data.total_pnl ?? 0) >= 0 ? 'positive' : 'negative';
+    const totalPnl = Number(data.total_pnl ?? 0);
+
+    totalPnlEl.textContent = totalPnl.toFixed(6);
+    totalPnlEl.className = totalPnl >= 0 ? 'positive' : 'negative';
+
+    if (lastTotalPnl !== null) {
+      totalPnlEl.classList.add(
+        totalPnl > lastTotalPnl ? 'pnl-up' : 'pnl-down'
+      );
+    }
+
+    lastTotalPnl = totalPnl;
 
     /* =========================
        LIVE POSITIONS
@@ -109,14 +179,25 @@ async function updateTable() {
     liveBody.innerHTML = '';
 
     for (const [exchange, info] of Object.entries(data.exchanges || {})) {
+      const pnl = Number(info.pnl ?? 0);
       const row = document.createElement('tr');
+
+      let pnlClass = pnl >= 0 ? 'positive' : 'negative';
+      let pnlFlash = '';
+
+      if (lastExchangePnl[exchange] !== undefined) {
+        pnlFlash = pnl > lastExchangePnl[exchange] ? 'pnl-up' : 'pnl-down';
+      }
+
+      lastExchangePnl[exchange] = pnl;
+
       row.innerHTML = `
         <td>${exchange}</td>
         <td>${Number(info.price ?? 0).toFixed(2)}</td>
         <td>${info.prediction !== null ? Number(info.prediction).toFixed(2) : '-'}</td>
         <td>${info.position ?? '-'}</td>
-        <td class="${(info.pnl ?? 0) >= 0 ? 'positive' : 'negative'}">
-          ${Number(info.pnl ?? 0).toFixed(6)}
+        <td class="${pnlClass} ${pnlFlash}">
+          ${pnl.toFixed(6)}
         </td>
       `;
       liveBody.appendChild(row);
@@ -128,8 +209,20 @@ async function updateTable() {
     const thBody = document.querySelector('#tradeHistoryTable tbody');
     thBody.innerHTML = '';
 
-    for (const trade of data.last_trades || []) {
+    const trades = [...(data.last_trades || [])].reverse();
+
+    for (const trade of trades) {
       const row = document.createElement('tr');
+
+      if (lastSeenTradeTime && trade.time > lastSeenTradeTime) {
+        if (trade.type === 'CLOSE') {
+          row.classList.add(
+            (trade.pnl ?? 0) >= 0 ? 'close-win' : 'close-loss'
+          );
+        } else {
+          row.classList.add('add-trade');
+        }
+      }
 
       row.innerHTML = `
         <td>${trade.time}</td>
@@ -143,8 +236,11 @@ async function updateTable() {
           ${trade.pnl !== null ? Number(trade.pnl).toFixed(6) : '-'}
         </td>
       `;
-
       thBody.appendChild(row);
+    }
+
+    if (trades.length > 0) {
+      lastSeenTradeTime = trades[0].time;
     }
 
   } catch (err) {
@@ -171,9 +267,8 @@ def home():
 @app.get("/data")
 def get_data():
     try:
-        r = requests.get(API_URL, timeout=5)
-        return r.json()
-    except Exception as e:
+        return requests.get(API_URL, timeout=5).json()
+    except:
         return {
             "timestamp": "-",
             "balance": 0,
