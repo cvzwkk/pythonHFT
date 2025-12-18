@@ -14,7 +14,7 @@ import websockets
 # CONFIG
 # =============================
 NGROK_AUTH_TOKEN = "37008jtAxiSWPEdzp7OtNvmXcxv_55UUkotksc7ztTYaM2huH"
-LOCAL_PORT = 8080
+LOCAL_PORT = 8989
 
 if NGROK_AUTH_TOKEN:
     conf.get_default().auth_token = NGROK_AUTH_TOKEN
