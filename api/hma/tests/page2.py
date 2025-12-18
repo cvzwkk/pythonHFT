@@ -26,7 +26,7 @@ conf.get_default().ngrok_port = NGROK_DASHBOARD_PORT
 # =============================
 app = FastAPI()
 
-}
+
 
 HTML_PAGE = """
 <!DOCTYPE html>
