@@ -1,5 +1,5 @@
 
-!pip install pyngrok
+#!pip install pyngrok
 
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
