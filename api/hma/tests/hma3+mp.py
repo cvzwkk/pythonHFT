@@ -550,8 +550,8 @@ app = FastAPI(title="BTC Live Microprice API")
 async def live_data():
     return JSONResponse({
         "timestamp": datetime.now().isoformat(),
-        "balance_usd": trader.balance,
-        "total_pnl_usd": trader.total_pnl(),
+        "balance": trader.balance,
+        "total_pnl": trader.total_pnl(),
         "totals": compute_trade_totals(),
         "exchanges": latest_results,
         "last_trades": list(trader.trade_history)[-20:]
