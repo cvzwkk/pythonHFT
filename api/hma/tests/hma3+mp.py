@@ -36,7 +36,7 @@ ngrok.set_auth_token(NGROK_AUTHTOKEN)
 ORDERBOOK_APIS = {
     "Coinbase": "https://api.exchange.coinbase.com/products/BTC-USD/book?level=2",
     "Kraken": "https://api.kraken.com/0/public/Depth?pair=XBTUSD&count=10",
-    "Bitstamp": "https://www.bitstamp.net/api/v2/order_book/btcusd/",
+    #"Bitstamp": "https://www.bitstamp.net/api/v2/order_book/btcusd/",
     "Bitfinex": "https://api.bitfinex.com/v1/book/btcusd"
 }
 
@@ -135,8 +135,8 @@ class PaperTrader:
         # ---- DCA params ----
         self.entry_size = 0.01               # BTC
         self.add_ratio = 0.86                # 86% of total BTC
-        self.adjust_step_pct = 0.001 / 100   # 0.001%
-        self.take_profit_pct = 0.009 / 100   # 0.009%
+        self.adjust_step_pct = 0.09 / 100   # 0.001%
+        self.take_profit_pct = 0.16 / 100   # 0.009%
 
     # =========================
     # FORCE CLOSE (UNIFIED)
@@ -209,100 +209,112 @@ class PaperTrader:
         return False
 
     # =========================
-# OPEN / ADD TRADE
-# =========================
-MAX_ORDER_SIZE = 2.0  # 2 BTC limit
-
-def open_trade(self, ex, side, price):
-    if self.trading_halted:
-        return
-
-    pos = self.positions[ex]
-
+    # OPEN / ADD TRADE
     # =========================
-    # NEW ENTRY
-    # =========================
-    if pos is None:
-        btc = min(self.entry_size, MAX_ORDER_SIZE)
+    def open_trade(self, ex, side, price):
+        if self.trading_halted:
+            return
 
-        self.positions[ex] = {
-            "side": side,
-            "avg_entry": price,
-            "total_btc": btc,
-            "adds": 0,
-            "entries": 1,  # entry + dca counter
-            "next_add_price": (
-                price * (1 - self.adjust_step_pct)
-                if side == "buy"
-                else price * (1 + self.adjust_step_pct)
-            )
-        }
+        pos = self.positions[ex]
+
+        # =========================
+        # NEW ENTRY
+        # =========================
+        if pos is None:
+            btc = self.entry_size
+
+            self.positions[ex] = {
+                "side": side,
+                "avg_entry": price,
+                "total_btc": btc,
+                "adds": 0,
+                "entries": 1,  # entry + dca counter
+                "next_add_price": (
+                    price * (1 - self.adjust_step_pct)
+                    if side == "buy"
+                    else price * (1 + self.adjust_step_pct)
+                )
+            }
+
+            self.trade_history.append({
+                "exchange": ex,
+                "type": "ENTRY",
+                "side": side.upper(),
+                "price": price,
+                "btc": btc,
+                "pnl": None,
+                "time": datetime.now().strftime("%H:%M:%S")
+            })
+            return
+
+        # =========================
+        # HARD ADD LIMIT
+        # =========================
+        if pos["adds"] >= self.max_adds:
+            self.force_close(ex, price, "MAX_ADDS")
+            return
+
+        side = pos["side"]
+
+        should_add = (
+            (side == "buy" and price <= pos["next_add_price"]) or
+            (side == "sell" and price >= pos["next_add_price"])
+        )
+
+        if not should_add:
+            return
+
+        # =========================
+        # SCALE-IN (BTC BASED)
+        # =========================
+        added_btc = pos["total_btc"] * self.add_ratio
+        new_total_btc = pos["total_btc"] + added_btc
+
+        pos["avg_entry"] = (
+            pos["avg_entry"] * pos["total_btc"]
+            + price * added_btc
+        ) / new_total_btc
+
+        pos["total_btc"] = new_total_btc
+        pos["adds"] += 1
+        pos["entries"] += 1
+
+        pos["next_add_price"] = (
+            price * (1 - self.adjust_step_pct)
+            if side == "buy"
+            else price * (1 + self.adjust_step_pct)
+        )
 
         self.trade_history.append({
             "exchange": ex,
-            "type": "ENTRY",
+            "type": "ADD",
             "side": side.upper(),
             "price": price,
-            "btc": btc,
+            "btc_added": added_btc,
+            "total_btc": new_total_btc,
             "pnl": None,
             "time": datetime.now().strftime("%H:%M:%S")
         })
-        return
 
     # =========================
-    # HARD ADD LIMIT
+    # TAKE PROFIT
     # =========================
-    if pos["adds"] >= self.max_adds:
-        self.force_close(ex, price, "MAX_ADDS")
-        return
+    def check_close_trade(self, ex, price):
+        pos = self.positions[ex]
+        if pos is None:
+            return
 
-    side = pos["side"]
+        side = pos["side"]
+        avg = pos["avg_entry"]
 
-    should_add = (
-        (side == "buy" and price <= pos["next_add_price"]) or
-        (side == "sell" and price >= pos["next_add_price"])
-    )
+        pnl_pct = (
+            (price - avg) / avg
+            if side == "buy"
+            else (avg - price) / avg
+        )
 
-    if not should_add:
-        return
-
-    # =========================
-    # SCALE-IN (BTC BASED)
-    # =========================
-    added_btc = pos["total_btc"] * self.add_ratio
-    new_total_btc = pos["total_btc"] + added_btc
-
-    # Check max order size
-    if new_total_btc > MAX_ORDER_SIZE:
-        print(f"[{ex}] Max 2 BTC limit reached. Closing trade.")
-        self.force_close(ex, price, "MAX_ORDER_SIZE")
-        return
-
-    pos["avg_entry"] = (
-        pos["avg_entry"] * pos["total_btc"]
-        + price * added_btc
-    ) / new_total_btc
-
-    pos["total_btc"] = new_total_btc
-    pos["adds"] += 1
-    pos["entries"] += 1
-
-    pos["next_add_price"] = (
-        price * (1 - self.adjust_step_pct)
-        if side == "buy"
-        else price * (1 + self.adjust_step_pct)
-    )
-
-    self.trade_history.append({
-        "exchange": ex,
-        "type": "ADD",
-        "side": side.upper(),
-        "price": price,
-        "btc_added": added_btc,
-        "total_btc": new_total_btc,
-        "pnl": None,
-        "time": datetime.now().strftime("%H:%M:%S")
-    })
+        if pnl_pct >= self.take_profit_pct:
+            self.force_close(ex, price, "TP")
 
     # =========================
     # TOTAL PNL
