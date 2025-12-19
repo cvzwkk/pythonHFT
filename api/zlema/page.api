@@ -12,7 +12,7 @@ import uvicorn
 # =============================
 NGROK_AUTH_TOKEN = "36xkALQDnxGLwLU3o1CIo2SKsvt_7cUEHiQnMbNC2Snv5bfKk"
 NGROK_DASHBOARD_PORT = 4042
-LOCAL_PORT = 8080
+LOCAL_PORT = 8082
 
 API_URL = "https://tiesha-nonfissile-jarvis.ngrok-free.dev/zlema"
 
