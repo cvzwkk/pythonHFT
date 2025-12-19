@@ -102,6 +102,14 @@ th { background-color: #f4f4f4; }
 
 #orderBookTable tbody tr {
   font-size: 13px;
+
+  #krakenOrderBook tbody tr {
+  font-size: 13px;
+}
+#mergedOrderBook tbody tr {
+  font-size: 13px;
+}
+
 }
 
 </style>
@@ -149,6 +157,26 @@ Total PnL: <span id="total_pnl">-</span>
 <tbody></tbody>
 </table>
 
+<h2>Aggregated Order Book (Bitfinex + Kraken)</h2>
+
+<table id="mergedOrderBook">
+<thead>
+<tr>
+<th colspan="3">BIDS (Merged)</th>
+<th colspan="3">ASKS (Merged)</th>
+</tr>
+<tr>
+<th>Price</th>
+<th>Size</th>
+<th>Cumulative</th>
+<th>Price</th>
+<th>Size</th>
+<th>Cumulative</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+
 <h2>Bitfinex Order Book (BTC/USD – Top 30)</h2>
 
 <table id="orderBookTable">
@@ -169,6 +197,25 @@ Total PnL: <span id="total_pnl">-</span>
 <tbody></tbody>
 </table>
 
+<h2>Kraken Order Book (BTC/USD – Top 30, Aggregated)</h2>
+
+<table id="krakenOrderBook">
+<thead>
+<tr>
+<th colspan="3">BIDS</th>
+<th colspan="3">ASKS</th>
+</tr>
+<tr>
+<th>Price</th>
+<th>Amount</th>
+<th>Cumulative</th>
+<th>Price</th>
+<th>Amount</th>
+<th>Cumulative</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
 
 <script>
 let lastSeenTradeTime = null;
@@ -373,8 +420,172 @@ ws.onmessage = (msg) => {
   }
 
   renderOrderBook();
+  renderMergedBook();
 };
 </script>
+<script>
+/* =========================
+   KRAKEN ORDER BOOK
+========================= */
+const KRAKEN_ROWS = 30;
+
+const krakenBids = new Map();
+const krakenAsks = new Map();
+
+const krakenBody = document.querySelector('#krakenOrderBook tbody');
+
+function renderKrakenBook() {
+  krakenBody.innerHTML = '';
+
+  const bids = [...krakenBids.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .slice(0, KRAKEN_ROWS);
+
+  const asks = [...krakenAsks.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .slice(0, KRAKEN_ROWS);
+
+  let bidCum = 0;
+  let askCum = 0;
+
+  for (let i = 0; i < KRAKEN_ROWS; i++) {
+    const row = document.createElement('tr');
+
+    if (bids[i]) bidCum += bids[i][1];
+    if (asks[i]) askCum += asks[i][1];
+
+    row.innerHTML = `
+      <td class="bid">${bids[i]?.[0]?.toFixed(2) ?? ''}</td>
+      <td class="bid">${bids[i]?.[1]?.toFixed(4) ?? ''}</td>
+      <td class="bid">${bidCum.toFixed(4)}</td>
+
+      <td class="ask">${asks[i]?.[0]?.toFixed(2) ?? ''}</td>
+      <td class="ask">${asks[i]?.[1]?.toFixed(4) ?? ''}</td>
+      <td class="ask">${askCum.toFixed(4)}</td>
+    `;
+    krakenBody.appendChild(row);
+  }
+}
+
+const krakenWS = new WebSocket("wss://ws.kraken.com");
+
+krakenWS.onopen = () => {
+  krakenWS.send(JSON.stringify({
+    event: "subscribe",
+    pair: ["XBT/USD"],
+    subscription: {
+      name: "book",
+      depth: 100
+    }
+  }));
+};
+
+krakenWS.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  if (!Array.isArray(msg)) return;
+
+  const data = msg[1];
+  if (!data) return;
+
+  // SNAPSHOT
+  if (data.as && data.bs) {
+    krakenBids.clear();
+    krakenAsks.clear();
+
+    data.bs.forEach(([price, volume]) =>
+      krakenBids.set(Number(price), Number(volume))
+    );
+
+    data.as.forEach(([price, volume]) =>
+      krakenAsks.set(Number(price), Number(volume))
+    );
+
+    renderKrakenBook();
+    renderMergedBook();
+    return;
+  }
+
+  // UPDATES
+  if (data.b) {
+    data.b.forEach(([price, volume]) => {
+      price = Number(price);
+      volume = Number(volume);
+      volume === 0 ? krakenBids.delete(price) : krakenBids.set(price, volume);
+    });
+  }
+
+  if (data.a) {
+    data.a.forEach(([price, volume]) => {
+      price = Number(price);
+      volume = Number(volume);
+      volume === 0 ? krakenAsks.delete(price) : krakenAsks.set(price, volume);
+    });
+  }
+
+  renderKrakenBook();
+};
+</script>
+<script>
+/* =========================
+   MERGED ORDER BOOK
+========================= */
+const MERGED_ROWS = 30;
+const mergedBody = document.querySelector('#mergedOrderBook tbody');
+
+function renderMergedBook() {
+  const mergedBids = new Map();
+  const mergedAsks = new Map();
+
+  // Bitfinex → merged
+  bids.forEach((size, price) => {
+    mergedBids.set(price, (mergedBids.get(price) || 0) + size);
+  });
+
+  asks.forEach((size, price) => {
+    mergedAsks.set(price, (mergedAsks.get(price) || 0) + size);
+  });
+
+  // Kraken → merged
+  krakenBids.forEach((size, price) => {
+    mergedBids.set(price, (mergedBids.get(price) || 0) + size);
+  });
+
+  krakenAsks.forEach((size, price) => {
+    mergedAsks.set(price, (mergedAsks.get(price) || 0) + size);
+  });
+
+  const bidLevels = [...mergedBids.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .slice(0, MERGED_ROWS);
+
+  const askLevels = [...mergedAsks.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .slice(0, MERGED_ROWS);
+
+  mergedBody.innerHTML = '';
+
+  let bidCum = 0;
+  let askCum = 0;
+
+  for (let i = 0; i < MERGED_ROWS; i++) {
+    const row = document.createElement('tr');
+
+    if (bidLevels[i]) bidCum += bidLevels[i][1];
+    if (askLevels[i]) askCum += askLevels[i][1];
+
+    row.innerHTML = `
+      <td class="bid">${bidLevels[i]?.[0]?.toFixed(2) ?? ''}</td>
+      <td class="bid">${bidLevels[i]?.[1]?.toFixed(4) ?? ''}</td>
+      <td class="bid">${bidCum.toFixed(4)}</td>
+
+      <td class="ask">${askLevels[i]?.[0]?.toFixed(2) ?? ''}</td>
+      <td class="ask">${askLevels[i]?.[1]?.toFixed(4) ?? ''}</td>
+      <td class="ask">${askCum.toFixed(4)}</td>
+    `;
+
+    mergedBody.appendChild(row);
+  }
+}
 
 </body>
 </html>
