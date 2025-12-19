@@ -36,7 +36,7 @@ ngrok.set_auth_token(NGROK_AUTHTOKEN)
 ORDERBOOK_APIS = {
     "Coinbase": "https://api.exchange.coinbase.com/products/BTC-USD/book?level=2",
     "Kraken": "https://api.kraken.com/0/public/Depth?pair=XBTUSD&count=10",
-    "Bitstamp": "https://www.bitstamp.net/api/v2/order_book/btcusd/",
+    #"Bitstamp": "https://www.bitstamp.net/api/v2/order_book/btcusd/",
     "Bitfinex": "https://api.bitfinex.com/v1/book/btcusd"
 }
 
