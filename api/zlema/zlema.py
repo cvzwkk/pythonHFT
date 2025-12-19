@@ -57,61 +57,69 @@ def micro_price(bid, ask, bid_sz, ask_sz):
     return (ask * bid_sz + bid * ask_sz) / (bid_sz + ask_sz + 1e-8)
 
 # =========================
-# HMA MODELS
+# ZLEMA MODELS
 # =========================
-def predict_hma_robust(prices, period=58):
-    if len(prices) < 4:
+# =========================
+# ZLEMA EXOTIC MODEL (1s)
+# =========================
+def predict_zlema_exotic(prices, period=20):
+    if len(prices) < period + 3:
         return None
 
     prices = np.array(prices, dtype=np.float64)
     prices = pd.Series(prices).ffill().bfill().values
 
-    def wma(arr, n):
-        n = min(len(arr), n)
-        weights = np.arange(1, n + 1)
-        return np.dot(arr[-n:], weights) / weights.sum()
-
-    half = max(2, period // 2)
-    half = min(half, len(prices))
     period = min(period, len(prices))
+    lag = max(1, (period - 1) // 2)
 
-    hma = 2 * wma(prices, half) - wma(prices, period)
+    # --- Zero Lag Price ---
+    zprice = prices[-1] + (prices[-1] - prices[-lag - 1])
 
-    slope_len = min(half, len(prices) - 1)
+    # --- ZLEMA ---
+    alpha = 2 / (period + 1)
+    zlema = zprice
+    for p in prices[-period:]:
+        zlema = alpha * p + (1 - alpha) * zlema
+
+    # --- Instantaneous slope (micro-trend) ---
+    slope_len = min(6, len(prices) - 1)
     slope = np.polyfit(
         np.arange(slope_len + 1),
         prices[-slope_len - 1:],
         1
     )[0]
 
-    returns = np.diff(np.log(prices + 1e-9))
-    momentum = (
-        np.sum(np.exp(-np.linspace(0, 3, len(returns))) * returns)
-        if len(returns) > 1 else 0.0
+    # --- High-freq momentum (exp weighted) ---
+    returns = np.diff(prices[-period:])
+    decay = np.exp(-np.linspace(0, 3, len(returns)))
+    momentum = np.sum(decay * returns)
+
+    # --- Volatility adaptive impulse ---
+    vol = np.std(returns) + 1e-9
+    vol_factor = np.tanh(vol * 120)
+
+    # --- Mean-reversion pressure (log-zscore) ---
+    logp = np.log(prices[-period:] + 1e-9)
+    z = (logp[-1] - logp.mean()) / (logp.std() + 1e-9)
+    mr = -np.tanh(z) * vol * 0.4
+
+    # --- Exotic impulse blend ---
+    impulse = (
+        slope * (1 + vol_factor)
+        + momentum * 0.6
+        + mr
     )
 
-    vol = np.std(returns[-half:]) + 1e-9
-    vol_boost = np.tanh(vol * 80)
-
-    log_prices = np.log(prices + 1e-9)
-    z = (log_prices[-1] - log_prices.mean()) / (np.std(log_prices) + 1e-9)
-    mr_factor = np.tanh(-0.3 * z)
-
-    forecast = (
-        hma
-        + slope * (1 + vol_boost)
-        + momentum * 0.5
-        + mr_factor * vol * 0.3
-    )
+    forecast = zlema + impulse
 
     return safe_return(forecast)
 
-def predict_hma_robust2(prices, period=10):
-    return predict_hma_robust(prices, period=period)
 
+def predict_zlema_exotic_fast(prices, period=10):
+    return predict_zlema_exotic(prices, period=period)
 MODELS = {
-    "HMA": predict_hma_robust,
-    "HMA2": predict_hma_robust2,
+    "ZLEMA": predict_zlema_exotic,
+    "ZLEMA2": predict_zlema_exotic_fast,
 }
 
 
@@ -427,14 +435,14 @@ async def update_prices():
                 prices[ex] = price
                 history[ex].append(price)
 
-                pred_hma = (
-                    MODELS["HMA"](list(history[ex]))
+                pred_zlema = (
+                    MODELS["ZLEMA"](list(history[ex]))
                     if len(history[ex]) >= 12
                     else None
                 )
 
-                pred_hma2 = (
-                    MODELS["HMA2"](list(history[ex]))
+                pred_zlema2 = (
+                    MODELS["ZLEMA2"](list(history[ex]))
                     if len(history[ex]) >= 12
                     else None
                 )
@@ -476,8 +484,8 @@ async def update_prices():
             for ex, price in prices.items():
                 pos = trader.positions[ex]
 
-                pred_hma = latest_results[ex]["prediction_hma"]
-                pred_hma2 = latest_results[ex]["prediction_hma2"]
+                pred_zlema = latest_results[ex]["prediction_zlema"]
+                pred_zlema2 = latest_results[ex]["prediction_zlema2"]
 
                 # NEW ENTRY
                 if (
