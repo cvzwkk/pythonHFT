@@ -1,17 +1,31 @@
-# api/zlema/zlema.py
-
-import threading
+import os
+import json
 import time
+import asyncio
+import threading
 import numpy as np
+import websockets
+
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 import uvicorn
 
+from pyngrok import ngrok, conf
+
 # =========================
-# SHARED STATE (THREAD SAFE)
+# CONFIG
 # =========================
-latest_zlema = {
-    "exchange": "BINANCE",
+SYMBOL = "tBTCUSD"
+WS_URL = "wss://api-pub.bitfinex.com/ws/2"
+PORT   = 9001
+
+NGROK_AUTH_TOKEN = os.getenv("36xhpiAn5cRi9ObeqeKYdJBZ13k_3z1GytiAf4Sn3czxWwNBm")
+
+# =========================
+# SHARED STATE
+# =========================
+latest = {
+    "exchange": "BITFINEX",
     "price": None,
     "prediction": None,
     "position": None,
@@ -21,28 +35,48 @@ latest_zlema = {
 
 lock = threading.Lock()
 
+prices = []
+
 # =========================
-# ZLEMA CORE LOGIC (example)
+# ZLEMA
 # =========================
-def run_zlema_loop():
-    global latest_zlema
+def zlema(prices, period=20):
+    if len(prices) < period:
+        return None
+    lag = (period - 1) // 2
+    adjusted = np.array(prices[-period:]) + (
+        np.array(prices[-period:]) - np.array(prices[-period-lag:-lag])
+    )
+    return adjusted.mean()
 
-    price = 50000.0
+# =========================
+# BITFINEX WS LOOP
+# =========================
+async def bitfinex_ws():
+    async with websockets.connect(WS_URL) as ws:
+        await ws.send(json.dumps({
+            "event": "subscribe",
+            "channel": "ticker",
+            "symbol": SYMBOL
+        }))
 
-    while True:
-        price += np.random.randn() * 2
-        prediction = price + np.random.randn() * 5
+        while True:
+            msg = json.loads(await ws.recv())
 
-        with lock:
-            latest_zlema.update({
-                "price": round(price, 2),
-                "prediction": round(prediction, 2),
-                "position": "LONG" if prediction > price else "SHORT",
-                "pnl": round(np.random.randn() * 10, 2),
-                "timestamp": time.time()
-            })
+            if isinstance(msg, list) and len(msg) > 1:
+                price = msg[1][6]
+                prices.append(price)
 
-        time.sleep(1)  # 1-second HFT loop
+                pred = zlema(prices)
+
+                with lock:
+                    latest.update({
+                        "price": round(price, 2),
+                        "prediction": round(pred, 2) if pred else None,
+                        "position": "LONG" if pred and pred > price else "SHORT",
+                        "pnl": round(np.random.randn() * 5, 2),
+                        "timestamp": time.time()
+                    })
 
 # =========================
 # FASTAPI
@@ -54,12 +88,20 @@ def zlema_data():
     with lock:
         return JSONResponse({
             "model": "ZLEMA",
-            "last_trades": [latest_zlema]
+            "last_trades": [latest]
         })
 
 # =========================
 # START
 # =========================
+def start_ws():
+    asyncio.run(bitfinex_ws())
+
 if __name__ == "__main__":
-    threading.Thread(target=run_zlema_loop, daemon=True).start()
-    uvicorn.run(app, host="0.0.0.0", port=9001)
+    if NGROK_AUTH_TOKEN:
+        conf.get_default().auth_token = NGROK_AUTH_TOKEN
+        public_url = ngrok.connect(PORT)
+        print(f"🌐 ZLEMA public URL: {public_url}")
+
+    threading.Thread(target=start_ws, daemon=True).start()
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
