@@ -243,6 +243,21 @@ Total PnL: <span id="total_pnl">-</span>
 </tr>
 </tbody>
 </table>
+
+<h2>Aggregated VWAP & Volume Profile</h2>
+<table id="vwapTable">
+<thead>
+<tr><th>Timeframe</th><th>VWAP</th><th>±1 Std</th><th>±2 Std</th><th>HVN</th><th>LVN</th></tr>
+</thead>
+<tbody>
+<tr data-tf="1m"><td>1m</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr data-tf="15m"><td>15m</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr data-tf="4h"><td>4h</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr data-tf="1d"><td>1d</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr data-tf="1w"><td>1w</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr data-tf="1M"><td>1M</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+</tbody>
+</table>
   
 </div>
 
@@ -833,7 +848,208 @@ renderAggTable = function () {
 };
 </script>
 
-"""
+<script>
+// =========================
+// Exchanges & Aggregated Orderbooks
+// =========================
+const EXCHANGES = ["binance","bitfinex","bitstamp","coinbase","okx","huobi"];
+const aggBooks = {};
+EXCHANGES.forEach(e => aggBooks[e] = { bids: new Map(), asks: new Map(), mid: null });
+
+// =========================
+// Depth Buckets
+// =========================
+const AGG_DEPTHS = { top:0.001, mid:0.005, deep:0.015 };
+const aggResult = { top:{bid:0,ask:0}, mid:{bid:0,ask:0}, deep:{bid:0,ask:0} };
+
+// =========================
+// VWAP / Volume Profile
+// =========================
+const VWAP_TFS=["1m","15m","4h","1d","1w","1M"];
+const tradeBuffers={}; VWAP_TFS.forEach(tf=>tradeBuffers[tf]=[]);
+
+const ROLLING_MS={"1m":60000,"15m":900000,"4h":14400000,"1d":86400000,"1w":604800000,"1M":2592000000};
+const AGG_VWAP={}; VWAP_TFS.forEach(tf=>AGG_VWAP[tf]=new Map());
+
+// =========================
+// UTIL FUNCTIONS
+// =========================
+function calcMid(bids, asks){
+    if(!bids.size||!asks.size) return null;
+    const bestBid = Math.max(...bids.keys());
+    const bestAsk = Math.min(...asks.keys());
+    return (bestBid+bestAsk)/2;
+}
+
+function addTrade(tf, price, volume, timestamp){
+    tradeBuffers[tf].push({price,volume,ts:timestamp});
+    AGG_VWAP[tf].set(price,(AGG_VWAP[tf].get(price)||0)+volume);
+    const cutoff=Date.now()-ROLLING_MS[tf];
+    while(tradeBuffers[tf].length && tradeBuffers[tf][0].ts < cutoff){
+        const old = tradeBuffers[tf].shift();
+        const prev = AGG_VWAP[tf].get(old.price) || 0;
+        const newVol = prev - old.volume;
+        if(newVol<=0) AGG_VWAP[tf].delete(old.price);
+        else AGG_VWAP[tf].set(old.price,newVol);
+    }
+}
+
+function computeVWAP(tf){
+    const priceMap = AGG_VWAP[tf];
+    if(priceMap.size===0) return null;
+    let totalVol=0, volPrice=0;
+    priceMap.forEach((vol,price)=>{totalVol+=vol; volPrice+=vol*price;});
+    const vwap = volPrice/totalVol;
+    let variance = 0;
+    priceMap.forEach((vol,price)=>{variance+=vol*Math.pow(price-vwap,2);});
+    variance/=totalVol;
+    const std=Math.sqrt(variance);
+    const hvn=[...priceMap.entries()].reduce((a,b)=>a[1]>b[1]?a:b)[0];
+    const lvn=[...priceMap.entries()].reduce((a,b)=>a[1]<b[1]?a:b)[0];
+    return {vwap,std1:std,std2:std*2,hvn,lvn};
+}
+
+// =========================
+// AGGREGATE BOOKS
+// =========================
+function aggregateBooks(){
+    ["top","mid","deep"].forEach(lvl=>{aggResult[lvl].bid=0;aggResult[lvl].ask=0;});
+    EXCHANGES.forEach(ex=>{
+        const book = aggBooks[ex];
+        if(!book.mid) return;
+        book.bids.forEach((size, price)=>{
+            const d=(book.mid-price)/book.mid;
+            if(d<=AGG_DEPTHS.deep){
+                if(d<=AGG_DEPTHS.top) aggResult.top.bid+=size;
+                else if(d<=AGG_DEPTHS.mid) aggResult.mid.bid+=size;
+                else aggResult.deep.bid+=size;
+            }
+        });
+        book.asks.forEach((size, price)=>{
+            const d=(price-book.mid)/book.mid;
+            if(d<=AGG_DEPTHS.deep){
+                if(d<=AGG_DEPTHS.top) aggResult.top.ask+=size;
+                else if(d<=AGG_DEPTHS.mid) aggResult.mid.ask+=size;
+                else aggResult.deep.ask+=size;
+            }
+        });
+    });
+}
+
+// =========================
+// RENDER FUNCTIONS
+// =========================
+function renderAggTable(){
+    const rows=document.querySelectorAll("#aggBookTable tbody tr");
+    rows.forEach(row=>{
+        const lvl=row.dataset.level;
+        const bid=aggResult[lvl].bid;
+        const ask=aggResult[lvl].ask;
+        const imb=(bid-ask)/Math.max(bid+ask,1e-6);
+        row.cells[1].textContent=ask.toFixed(2);
+        row.cells[2].textContent=bid.toFixed(2);
+        row.cells[3].textContent=imb.toFixed(3);
+        row.cells[3].className=imb>0?"positive":imb<0?"negative":"";
+    });
+}
+
+function renderVWAPTable(){
+    VWAP_TFS.forEach(tf=>{
+        const row=document.querySelector(`#vwapTable tr[data-tf="${tf}"]`);
+        const d=computeVWAP(tf);
+        if(!d) return;
+        row.cells[1].textContent=d.vwap.toFixed(2);
+        row.cells[2].textContent=(d.vwap-d.std1).toFixed(2)+" / "+(d.vwap+d.std1).toFixed(2);
+        row.cells[3].textContent=(d.vwap-d.std2).toFixed(2)+" / "+(d.vwap+d.std2).toFixed(2);
+        row.cells[4].textContent=d.hvn.toFixed(2);
+        row.cells[5].textContent=d.lvn.toFixed(2);
+    });
+}
+
+// =========================
+// BINANCE WS
+// =========================
+(() => {
+    const ws = new WebSocket("wss://stream.binance.com:9443/ws/btcusdt@trade");
+    ws.onmessage = e => {
+        const d = JSON.parse(e.data);
+        addTrade("1m", parseFloat(d.p), parseFloat(d.q), d.T);
+    };
+})();
+
+// =========================
+// BITFINEX WS
+// =========================
+(() => {
+    const ws = new WebSocket("wss://api-pub.bitfinex.com/ws/2");
+    let chanId = null;
+    ws.onopen = () => ws.send(JSON.stringify({event:"subscribe",channel:"trades",symbol:"tBTCUSD"}));
+    ws.onmessage = e => {
+        const d = JSON.parse(e.data);
+        if(d.event==="subscribed"){ chanId=d.chanId; return; }
+        if(!Array.isArray(d)||d[0]!==chanId) return;
+        const trades = d[1];
+        if(Array.isArray(trades[0])) trades.forEach(([id,ts,price,amount])=>{
+            addTrade("1m", price, Math.abs(amount), ts);
+        });
+    };
+})();
+
+// =========================
+// COINBASE WS
+// =========================
+(() => {
+    const ws = new WebSocket("wss://ws-feed.exchange.coinbase.com");
+    ws.onopen = () => ws.send(JSON.stringify({type:"subscribe",product_ids:["BTC-USD"],channels:["matches"]}));
+    ws.onmessage = e => {
+        const d = JSON.parse(e.data);
+        if(d.type==="match") addTrade("1m", parseFloat(d.price), parseFloat(d.size), new Date(d.time).getTime());
+    };
+})();
+
+// =========================
+// BITSTAMP WS
+// =========================
+(() => {
+    const ws = new WebSocket("wss://ws.bitstamp.net");
+    ws.onopen = () => ws.send(JSON.stringify({event:"bts:subscribe",data:{channel:"live_trades_btcusd"}}));
+    ws.onmessage = e => {
+        const d = JSON.parse(e.data);
+        if(d.event==="trade") addTrade("1m", parseFloat(d.data.price), parseFloat(d.data.amount), d.data.microtimestamp/1000);
+    };
+})();
+
+// =========================
+// OKX WS
+// =========================
+(() => {
+    const ws = new WebSocket("wss://ws.okx.com:8443/ws/v5/public");
+    ws.onopen = () => ws.send(JSON.stringify({op:"subscribe",args:[{channel:"trades",instId:"BTC-USDT"}]}));
+    ws.onmessage = e => {
+        const d = JSON.parse(e.data);
+        if(!d.data) return;
+        d.data.forEach(trade => addTrade("1m", parseFloat(trade.p), parseFloat(trade.s), trade.ts));
+    };
+})();
+
+// =========================
+// HUOBI WS
+// =========================
+(() => {
+    const ws = new WebSocket("wss://api.huobi.pro/ws");
+    ws.onopen = () => ws.send(JSON.stringify({sub:"market.btcusdt.trade.detail",id:"huobi"})));
+    ws.onmessage = e => {
+        const d = JSON.parse(e.data);
+        if(!d.tick||!d.tick.data) return;
+        d.tick.data.forEach(trade => addTrade("1m", trade.price, trade.amount, trade.ts));
+    };
+})();
+
+// =========================
+// UPDATE LOOP
+// =========================
+setInterval(()=>{aggregateBooks(); renderAggTable(); renderVWAPTable();},1000);
+</script>
 
 
 </body>
