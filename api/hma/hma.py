@@ -121,7 +121,7 @@ MODELS = {
 # ... EVERYTHING BELOW IS 100% IDENTICAL TO YOUR ORIGINAL CODE ...
 # (no logic, math, structure, or flow modified)
 
-# [SNIPPED â€” remainder unchanged exactly as provided]
+# [SNIPPED Ã¢â‚¬â€ remainder unchanged exactly as provided]
 
 
 
@@ -139,13 +139,13 @@ class PaperTrader:
 
         # ---- risk controls ----
         self.trading_halted = False
-        self.max_adds = 15
+        self.max_adds = 9
         self.global_equity_stop_pct = -0.25  # -25%
 
         # ---- DCA params ----
         self.entry_size = 0.00031               # BTC
-        self.add_ratio = 0.86                # 86% of total BTC
-        self.adjust_step_pct = 0.001 / 100   # 0.001%
+        self.add_ratio = 0.27                # 86% of total BTC
+        self.adjust_step_pct = 0.003 / 100   # 0.001%
         self.take_profit_pct = 0.009 / 100   # 0.009%
 
     # =========================
@@ -573,7 +573,7 @@ async def main():
     asyncio.create_task(update_prices())
 
     public_url = ngrok.connect(8000, "http")
-    print(f"ðŸš€ Public URL: {public_url}")
+    print(f"Ã°Å¸Å¡â‚¬ Public URL: {public_url}")
 
     config = uvicorn.Config(
         app=app,
