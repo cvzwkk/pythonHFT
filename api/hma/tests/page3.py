@@ -149,25 +149,7 @@ Total PnL: <span id="total_pnl">-</span>
 <tbody></tbody>
 </table>
 
-<h2>Bitfinex Order Book (BTC/USD)</h2>
 
-<div id="orderbookContainer">
-  <table id="orderbookTable">
-    <thead>
-      <tr>
-        <th colspan="2" style="color:red">Asks</th>
-        <th colspan="2" style="color:green">Bids</th>
-      </tr>
-      <tr>
-        <th>Price</th>
-        <th>Size</th>
-        <th>Price</th>
-        <th>Size</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-</div>
 
 <h2>Last 50 Trades (Newest First)</h2>
 
@@ -186,6 +168,26 @@ Total PnL: <span id="total_pnl">-</span>
 </thead>
 <tbody></tbody>
 </table>
+</div>
+
+
+<h2>Bitfinex Order Book (BTC/USD)</h2>
+<div id="orderbookContainer" style="position: absolute; left: 0%; top: 68%; height: 100%; width: 100%">
+  <table id="orderbookTable">
+    <thead>
+      <tr>
+        <th colspan="2" style="color:red">Asks</th>
+        <th colspan="2" style="color:green">Bids</th>
+      </tr>
+      <tr>
+        <th>Price</th>
+        <th>Size</th>
+        <th>Price</th>
+        <th>Size</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
 </div>
 <script>
 let lastSeenTradeTime = null;
