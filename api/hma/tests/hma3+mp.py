@@ -69,10 +69,12 @@ def predict_hma(prices, period=7):
 
     return float(np.dot(prices[-7:], w))
 
+def predict_hma_robust2(prices, period=10):
+    return predict_hma_robust(prices, period=period)
 
 MODELS = {
     "HMA": predict_hma,
-    #"HMA2": predict_hma_robust2,
+    "HMA2": predict_hma_robust2,
 }
 
 # =========================
@@ -403,11 +405,11 @@ async def update_prices():
                     else None
                 )
 
-                #pred_hma2 = (
-                #   MODELS["HMA2"](list(history[ex]))
-                #   if len(history[ex]) >= 12
-                #   else None
-                #)
+                pred_hma2 = (
+                   MODELS["HMA2"](list(history[ex]))
+                   if len(history[ex]) >= 12
+                   else None 
+                )
 
                 pos = trader.positions[ex]
 
