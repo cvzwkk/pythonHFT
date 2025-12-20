@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
@@ -143,7 +144,7 @@ th { background-color: #f4f4f4; }
 
 
 /* =========================
-   Ã°Å¸â€Â¥ ADDED: AGGREGATED BOOK
+   ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â¥ ADDED: AGGREGATED BOOK
 ========================= */
 #aggBookTable {
   width: 100%;
@@ -168,7 +169,7 @@ th { background-color: #f4f4f4; }
 <script type="text/javascript">DukascopyApplet = {"type":"chart","params":{"showUI":true,"showTabs":true,"showParameterToolbar":true,"showOfferSide":true,"allowInstrumentChange":true,"allowPeriodChange":true,"allowOfferSideChange":true,"showAdditionalToolbar":true,"showExportImportWorkspace":true,"allowSocialSharing":true,"showUndoRedoButtons":true,"showDetachButton":false,"presentationType":"candle","axisX":true,"axisY":true,"legend":true,"timeline":true,"showDateSeparators":true,"showZoom":true,"showScrollButtons":true,"showAutoShiftButton":true,"crosshair":true,"borders":false,"freeMode":false,"theme":"Pastelle","uiColor":"#000","availableInstruments":"l:","instrument":"BTC/USD","period":"5","offerSide":"BID","timezone":0,"live":true,"allowPan":true,"indicators":"sDYURGRBVBCMBgvAnIDgCjpTCLOcLjECDsADqAYQEWCsgLADyABF2dzI2QENoGyPx-ABlAFgAJhNsE8b0CgkAMRjO0gsOgvALhOGWWNKturbIQGfhhugj4YThFyVi0E-br1tLTV2QLsBB7uJLxcxP7UgIYKCLJwsAJA.","width":"100%","height":"100%","adv":"popup","lang":"en"}};</script><script type="text/javascript" src="https://freeserv-static.dukascopy.com/2.0/core.js"></script>
 </div>
 
-<div id="divResize3" style="position: absolute; left: 0%; top: 35%; height: 100%; width: 100%">
+<div id="divResize3" style="position: absolute; left: 0%; top: 38%; height: 100%; width: 100%">
 <h2>Live Trading Data</h2>
 
 <p>Last updated: <span id="timestamp">-</span></p>
@@ -230,7 +231,7 @@ Total PnL: <span id="total_pnl">-</span>
 
 
 <!-- =========================
-     Ã°Å¸â€Â¥ ADDED: AGGREGATED BOOK
+     ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â¥ ADDED: AGGREGATED BOOK
      BELOW BITFINEX ONLY
 ========================= -->
 
@@ -295,7 +296,7 @@ async function fetchData(){
         row.cells[5].innerText = json[tf].low;
     }
 }
-setInterval(fetchData, 1000);
+setInterval(fetchData, 5000);
 fetchData();
 </script>
 
@@ -410,7 +411,7 @@ async function updateTable() {
   }
 }
 
-setInterval(updateTable, 1000);
+setInterval(updateTable, 5000);
 updateTable();
 </script>
 
@@ -535,14 +536,14 @@ function renderOrderBook(flash) {
 <script>
 /* =========================
    AGGREGATED ORDERBOOK CORE
-   (STATE ONLY Ã¢â‚¬â€œ NO WS YET)
+   (STATE ONLY ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“ NO WS YET)
 ========================= */
 
 /*
 Depth buckets:
 Top   = best 0.1%
-Mid   = 0.1% Ã¢â€ â€™ 0.5%
-Deep  = 0.5% Ã¢â€ â€™ 1.5%
+Mid   = 0.1% ÃƒÂ¢Ã¢â‚¬ Ã¢â‚¬â„¢ 0.5%
+Deep  = 0.5% ÃƒÂ¢Ã¢â‚¬ Ã¢â‚¬â„¢ 1.5%
 */
 
 const AGG_DEPTHS = {
@@ -666,7 +667,7 @@ function renderAggTable() {
 setInterval(() => {
   aggregateBooks();
   renderAggTable();
-}, 250); // 4 FPS, ultra light
+}, 5000); // 4 FPS, ultra light
 </script>
 
 <script>
@@ -828,7 +829,7 @@ setInterval(() => {
 
 <script>
 /* =========================
-   AGG BOOK Ã¢â‚¬â€œ FLASH LOGIC
+   AGG BOOK ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“ FLASH LOGIC
 ========================= */
 
 const AGG_FLASH_THRESHOLD = 25.0; // BTC delta to flash
@@ -887,6 +888,42 @@ renderAggTable = function () {
   updateAggSnapshot();
 };
 </script>
+
+<div id="divResize4" style="position: absolute; left: 0%; top: 110%; height: 32%; width: 100%">
+
+<!-- TradingView Widget BEGIN -->
+<script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+  {
+  "allow_symbol_change": true,
+  "calendar": false,
+  "details": true,
+  "hide_side_toolbar": false,
+  "hide_top_toolbar": false,
+  "hide_legend": false,
+  "hide_volume": false,
+  "hotlist": false,
+  "interval": "1",
+  "locale": "en",
+  "save_image": true,
+  "style": "8",
+  "symbol": "BITFINEX:BTCUSD",
+  "theme": "dark",
+  "timezone": "Etc/UTC",
+  "backgroundColor": "#0F0F0F",
+  "gridColor": "rgba(242, 242, 242, 0.06)",
+  "watchlist": [],
+  "withdateranges": true,
+  "compareSymbols": [],
+  "studies": [
+    "STD;VWAP",
+    "STD;Smoothed%1Moving%1Average"
+  ],
+  "autosize": true
+}
+  </script>
+</div>
+<!-- TradingView Widget END -->
+</div>
 
 </body>
 </html>
@@ -951,3 +988,5 @@ if __name__ == "__main__":
     print(f"Ngrok dashboard port: {NGROK_DASHBOARD_PORT}")
 
     uvicorn.run(app, host="0.0.0.0", port=LOCAL_PORT)
+
+#make the script refresh all datas each 5 seconds
