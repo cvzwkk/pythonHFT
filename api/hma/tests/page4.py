@@ -54,7 +54,7 @@ th { background-color: #f4f4f4; }
 .positive { color: green; }
 
 /* =========================
-   EXISTING ANIMATIONS
+   ADD TRADE ANIMATION
 ========================= */
 @keyframes addFlash {
   from { background-color: #ffffcc; }
@@ -65,6 +65,9 @@ th { background-color: #f4f4f4; }
   animation: addFlash 0.8s ease-out;
 }
 
+/* =========================
+   CLOSE TRADE ANIMATION
+========================= */
 @keyframes closeWin {
   from { background-color: #ccffcc; }
   to   { background-color: transparent; }
@@ -78,6 +81,9 @@ th { background-color: #f4f4f4; }
 .close-win  { animation: closeWin 1s ease-out; }
 .close-loss { animation: closeLoss 1s ease-out; }
 
+/* =========================
+   PnL FLASH
+========================= */
 @keyframes pnlUp {
   from { background-color: #ccffcc; }
   to   { background-color: transparent; }
@@ -90,6 +96,10 @@ th { background-color: #f4f4f4; }
 
 .pnl-up   { animation: pnlUp 0.6s ease-out; }
 .pnl-down { animation: pnlDown 0.6s ease-out; }
+
+#orderbookContainer {
+  margin-top: 20px;
+}
 
 #orderbookTable {
   width: 100%;
@@ -108,6 +118,7 @@ th { background-color: #f4f4f4; }
   to { background-color: transparent; }
 }
 
+
 /* =========================
    🔥 ADDED: AGGREGATED BOOK
 ========================= */
@@ -125,8 +136,10 @@ th { background-color: #f4f4f4; }
   from { background-color: #ffff99; }
   to   { background-color: transparent; }
 }
+
 </style>
 </head>
+
 <body>
 <div id="divResize2" style="position: absolute; left: 0%; top: 0%; height: 35%; width: 100%">
 <script type="text/javascript">DukascopyApplet = {"type":"chart","params":{"showUI":true,"showTabs":true,"showParameterToolbar":true,"showOfferSide":true,"allowInstrumentChange":true,"allowPeriodChange":true,"allowOfferSideChange":true,"showAdditionalToolbar":true,"showExportImportWorkspace":true,"allowSocialSharing":true,"showUndoRedoButtons":true,"showDetachButton":false,"presentationType":"candle","axisX":true,"axisY":true,"legend":true,"timeline":true,"showDateSeparators":true,"showZoom":true,"showScrollButtons":true,"showAutoShiftButton":true,"crosshair":true,"borders":false,"freeMode":false,"theme":"Pastelle","uiColor":"#000","availableInstruments":"l:","instrument":"BTC/USD","period":"5","offerSide":"BID","timezone":0,"live":true,"allowPan":true,"indicators":"sDYURGRBVBCMBgvAnIDgCjpTCLOcLjECDsADqAYQEWCsgLADyABF2dzI2QENoGyPx-ABlAFgAJhNsE8b0CgkAMRjO0gsOgvALhOGWWNKturbIQGfhhugj4YThFyVi0E-br1tLTV2QLsBB7uJLxcxP7UgIYKCLJwsAJA.","width":"100%","height":"100%","adv":"popup","lang":"en"}};</script><script type="text/javascript" src="https://freeserv-static.dukascopy.com/2.0/core.js"></script>
@@ -141,6 +154,7 @@ Balance: <span id="balance">-</span> |
 Total PnL: <span id="total_pnl">-</span>
 </p>
 
+<!-- LIVE POSITIONS -->
 <table id="liveTable">
 <thead>
 <tr>
@@ -153,6 +167,8 @@ Total PnL: <span id="total_pnl">-</span>
 </thead>
 <tbody></tbody>
 </table>
+
+
 
 <h2>Last 50 Trades (Newest First)</h2>
 
@@ -173,21 +189,22 @@ Total PnL: <span id="total_pnl">-</span>
 </table>
 
 <h2>Bitfinex Order Book (BTC/USD)</h2>
-<table id="orderbookTable">
-<thead>
-<tr>
-<th colspan="2" style="color:red">Asks</th>
-<th colspan="2" style="color:green">Bids</th>
-</tr>
-<tr>
-<th>Price</th>
-<th>Size</th>
-<th>Price</th>
-<th>Size</th>
-</tr>
-</thead>
-<tbody></tbody>
-</table>
+  <table id="orderbookTable">
+    <thead>
+      <tr>
+        <th colspan="2" style="color:red">Asks</th>
+        <th colspan="2" style="color:green">Bids</th>
+      </tr>
+      <tr>
+        <th>Price</th>
+        <th>Size</th>
+        <th>Price</th>
+        <th>Size</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
 
 <!-- =========================
      🔥 ADDED: AGGREGATED BOOK
@@ -226,169 +243,238 @@ Total PnL: <span id="total_pnl">-</span>
 </tr>
 </tbody>
 </table>
-
+  
 </div>
+
 <script>
-/* =========================
-   AGGREGATED ORDERBOOK CORE
-   (STATE ONLY – NO WS YET)
-========================= */
+let lastSeenTradeTime = null;
+let lastTotalPnl = null;
+let lastExchangePnl = {};
 
-/*
-Depth buckets:
-Top   = best 0.1%
-Mid   = 0.1% → 0.5%
-Deep  = 0.5% → 1.5%
-*/
+async function updateTable() {
+  try {
+    const res = await fetch('/data');
+    const data = await res.json();
 
-const AGG_DEPTHS = {
-  top: 0.001,
-  mid: 0.005,
-  deep: 0.015
-};
+    /* =========================
+       HEADER PnL FLASH
+    ========================= */
+    document.getElementById('timestamp').textContent = data.timestamp ?? '-';
+    document.getElementById('balance').textContent =
+      Number(data.balance ?? 0).toFixed(2);
 
-/* =========================
-   EXCHANGE REGISTRY
-========================= */
+    const totalPnlEl = document.getElementById('total_pnl');
+    const totalPnl = Number(data.total_pnl ?? 0);
 
-const AGG_EXCHANGES = [
-  "bitfinex",
-  "binance",
-  "kraken",
-  "bitstamp",
-  "okx",
-  "huobi",
-  "coinbase"
-];
+    totalPnlEl.textContent = totalPnl.toFixed(6);
+    totalPnlEl.className = totalPnl >= 0 ? 'positive' : 'negative';
 
-/* =========================
-   ORDERBOOK STORAGE
-========================= */
+    if (lastTotalPnl !== null) {
+      totalPnlEl.classList.add(
+        totalPnl > lastTotalPnl ? 'pnl-up' : 'pnl-down'
+      );
+    }
 
-const aggBooks = {};
-AGG_EXCHANGES.forEach(ex => {
-  aggBooks[ex] = {
-    bids: new Map(),
-    asks: new Map(),
-    mid: null
-  };
-});
+    lastTotalPnl = totalPnl;
 
-/* =========================
-   AGGREGATION RESULT STATE
-========================= */
+    /* =========================
+       LIVE POSITIONS
+    ========================= */
+    const liveBody = document.querySelector('#liveTable tbody');
+    liveBody.innerHTML = '';
 
-const aggResult = {
-  top: { bid: 0, ask: 0 },
-  mid: { bid: 0, ask: 0 },
-  deep:{ bid: 0, ask: 0 }
-};
+    for (const [exchange, info] of Object.entries(data.exchanges || {})) {
+      const pnl = Number(info.pnl ?? 0);
+      const row = document.createElement('tr');
 
-/* =========================
-   UTILS
-========================= */
+      let pnlClass = pnl >= 0 ? 'positive' : 'negative';
+      let pnlFlash = '';
 
-function calcMid(bids, asks) {
-  if (!bids.size || !asks.size) return null;
-  const bestBid = Math.max(...bids.keys());
-  const bestAsk = Math.min(...asks.keys());
-  return (bestBid + bestAsk) / 2;
-}
+      if (lastExchangePnl[exchange] !== undefined) {
+        pnlFlash = pnl > lastExchangePnl[exchange] ? 'pnl-up' : 'pnl-down';
+      }
 
-function resetAggResult() {
-  for (const lvl in aggResult) {
-    aggResult[lvl].bid = 0;
-    aggResult[lvl].ask = 0;
+      lastExchangePnl[exchange] = pnl;
+
+      row.innerHTML = `
+        <td>${exchange}</td>
+        <td>${Number(info.price ?? 0).toFixed(2)}</td>
+        <td>${info.prediction !== null ? Number(info.prediction).toFixed(2) : '-'}</td>
+        <td>${info.position ?? '-'}</td>
+        <td class="${pnlClass} ${pnlFlash}">
+          ${pnl.toFixed(6)}
+        </td>
+      `;
+      liveBody.appendChild(row);
+    }
+
+    /* =========================
+       TRADE HISTORY
+    ========================= */
+    const thBody = document.querySelector('#tradeHistoryTable tbody');
+    thBody.innerHTML = '';
+
+    const trades = [...(data.last_trades || [])]
+  .slice(-10)
+  .reverse();
+
+    for (const trade of trades) {
+      const row = document.createElement('tr');
+
+      if (lastSeenTradeTime && trade.time > lastSeenTradeTime) {
+        if (trade.type === 'CLOSE') {
+          row.classList.add(
+            (trade.pnl ?? 0) >= 0 ? 'close-win' : 'close-loss'
+          );
+        } else {
+          row.classList.add('add-trade');
+        }
+      }
+
+      row.innerHTML = `
+        <td>${trade.time}</td>
+        <td>${trade.exchange}</td>
+        <td>${trade.type}</td>
+        <td>${trade.side}</td>
+        <td>${Number(trade.price ?? 0).toFixed(2)}</td>
+        <td>${trade.btc_added !== null ? Number(trade.btc_added).toFixed(8) : '-'}</td>
+        <td>${trade.total_btc !== null ? Number(trade.total_btc).toFixed(8) : '-'}</td>
+        <td class="${(trade.pnl ?? 0) >= 0 ? 'positive' : 'negative'}">
+          ${trade.pnl !== null ? Number(trade.pnl).toFixed(6) : '-'}
+        </td>
+      `;
+      thBody.appendChild(row);
+    }
+
+    if (trades.length > 0) {
+      lastSeenTradeTime = trades[0].time;
+    }
+
+  } catch (err) {
+    console.error("LIVE UPDATE ERROR:", err);
   }
 }
 
+setInterval(updateTable, 1000);
+updateTable();
+</script>
+
+<script>
 /* =========================
-   AGGREGATE ALL EXCHANGES
+   BITFINEX ORDER BOOK (FIXED)
 ========================= */
+const BIG_SIZE_THRESHOLD = 5.0;   // BTC size to flash
+const RENDER_INTERVAL_MS = 100;   // 10 FPS max
+const ws = new WebSocket("wss://api-pub.bitfinex.com/ws/2");
 
-function aggregateBooks() {
-  resetAggResult();
+let chanId = null;
+let bids = new Map();
+let asks = new Map();
+let needsRender = false;
+let lastBigUpdate = false;
 
-  AGG_EXCHANGES.forEach(ex => {
-    const book = aggBooks[ex];
-    if (!book.mid) return;
+ws.onopen = () => {
+  ws.send(JSON.stringify({
+    event: "subscribe",
+    channel: "book",
+    symbol: "tBTCUSD",
+    prec: "P0",
+    freq: "F0",
+    len: 25
+  }));
+};
 
-    for (const [price, size] of book.bids) {
-      const d = (book.mid - price) / book.mid;
-      if (d <= AGG_DEPTHS.deep) {
-        if (d <= AGG_DEPTHS.top) aggResult.top.bid += size;
-        else if (d <= AGG_DEPTHS.mid) aggResult.mid.bid += size;
-        else aggResult.deep.bid += size;
-      }
-    }
+ws.onmessage = (msg) => {
+  const data = JSON.parse(msg.data);
 
-    for (const [price, size] of book.asks) {
-      const d = (price - book.mid) / book.mid;
-      if (d <= AGG_DEPTHS.deep) {
-        if (d <= AGG_DEPTHS.top) aggResult.top.ask += size;
-        else if (d <= AGG_DEPTHS.mid) aggResult.mid.ask += size;
-        else aggResult.deep.ask += size;
-      }
-    }
-  });
-}
+  if (data.event === "subscribed") {
+    chanId = data.chanId;
+    return;
+  }
+
+  if (!Array.isArray(data) || data[0] !== chanId) return;
+
+  const payload = data[1];
+
+  /* SNAPSHOT */
+  if (Array.isArray(payload[0])) {
+    bids.clear();
+    asks.clear();
+
+    payload.forEach(([price, count, amount]) => {
+      if (amount > 0) bids.set(price, amount);
+      else asks.set(price, Math.abs(amount));
+    });
+
+    needsRender = true;
+    return;
+  }
+
+  /* INCREMENTAL UPDATE */
+  const [price, count, amount] = payload;
+
+  let size = Math.abs(amount);
+
+  if (count === 0) {
+    bids.delete(price);
+    asks.delete(price);
+  } else {
+    if (amount > 0) bids.set(price, size);
+    else asks.set(price, size);
+  }
+
+  if (size >= BIG_SIZE_THRESHOLD) {
+    lastBigUpdate = true;
+  }
+
+  needsRender = true;
+};
 
 /* =========================
-   RENDER AGG TABLE
-========================= */
-
-function renderAggTable() {
-  const rows = document.querySelectorAll("#aggBookTable tbody tr");
-
-  rows.forEach(row => {
-    const lvl = row.dataset.level;
-    const bid = aggResult[lvl].bid;
-    const ask = aggResult[lvl].ask;
-    const imb = (bid - ask) / Math.max(bid + ask, 1e-6);
-
-    row.cells[1].textContent = ask.toFixed(2);
-    row.cells[2].textContent = bid.toFixed(2);
-    row.cells[3].textContent = imb.toFixed(3);
-
-    row.cells[3].className =
-      imb > 0 ? "positive" : imb < 0 ? "negative" : "";
-  });
-}
-
-/* =========================
-   THROTTLED UPDATE LOOP
+   RENDER LOOP (THROTTLED)
 ========================= */
 
 setInterval(() => {
-  aggregateBooks();
-  renderAggTable();
-}, 250); // 4 FPS, ultra light
-</script>
-<script>
-/* =========================
-   BINANCE (BTCUSDT)
-========================= */
-(() => {
-  const ws = new WebSocket("wss://stream.binance.com:9443/ws/btcusdt@depth@100ms");
-  ws.onmessage = e => {
-    const d = JSON.parse(e.data);
-    const book = aggBooks.binance;
-    book.bids.clear();
-    book.asks.clear();
+  if (!needsRender) return;
 
-    d.b.forEach(([p, s]) => book.bids.set(+p, +s));
-    d.a.forEach(([p, s]) => book.asks.set(+p, +s));
-
-    book.mid = calcMid(book.bids, book.asks);
-  };
-})();
+  renderOrderBook(lastBigUpdate);
+  needsRender = false;
+  lastBigUpdate = false;
+}, RENDER_INTERVAL_MS);
 
 /* =========================
-   KRAKEN (XBT/USD)
+   RENDER FUNCTION
 ========================= */
-(() => {
-  const ws = new WebSocket("wss://ws.kraken.com");
-  ws.onopen = () => ws.send(JSON.stringify({
+
+function renderOrderBook(flash) {
+  const tbody = document.querySelector("#orderbookTable tbody");
+  tbody.innerHTML = "";
+
+  const bidRows = [...bids.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .slice(0, 15);
+
+  const askRows = [...asks.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .slice(0, 15);
+
+  for (let i = 0; i < 15; i++) {
+    const tr = document.createElement("tr");
+
+    const ask = askRows[i];
+    const bid = bidRows[i];
+
+    tr.innerHTML = `
+      <td class="ask">${ask ? ask[0].toFixed(2) : ""}</td>
+      <td class="ask">${ask ? ask[1].toFixed(4) : ""}</td>
+      <td class="bid">${bid ? bid[0].toFixed(2) : ""}</td>
+      <td class="bid">${bid ? bid[1].toFixed(4) : ""}</td>
+    `;
+
+    if (flash) tr.classList.add("flash");
+    tbody.appendChild(tr);
+  }
+}
     event: "subscribe",
     pair: ["XBT/USD"],
     subscription: { name: "book", depth: 25 }
@@ -581,6 +667,11 @@ renderAggTable = function () {
   updateAggSnapshot();
 };
 </script>
+"""
+
+
+</body>
+</html>
 """
 
 # =============================
