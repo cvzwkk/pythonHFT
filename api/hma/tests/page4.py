@@ -243,75 +243,100 @@ Total PnL: <span id="total_pnl">-</span>
 </tr>
 </tbody>
 </table>
-
-  <h2>Bitfinex VWAP / Std / High / Low (1s update)</h2>
-<table id="bitfinexVWAPTable">
-<thead>
-<tr><th>VWAP</th><th>Std1</th><th>Std2</th><th>High</th><th>Low</th></tr>
-</thead>
-<tbody>
-<tr>
-<td id="vwap">-</td>
-<td id="std1">-</td>
-<td id="std2">-</td>
-<td id="high">-</td>
-<td id="low">-</td>
-</tr>
-</tbody>
+  <h2>Bitfinex Live VWAP / Std / High / Low</h2>
+<table id="vwapTable">
+  <thead>
+    <tr>
+      <th>Timeframe</th>
+      <th>VWAP</th>
+      <th>Std1</th>
+      <th>Std2</th>
+      <th>High</th>
+      <th>Low</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr data-timeframe="1m"><td>1m</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+    <tr data-timeframe="15m"><td>15m</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+    <tr data-timeframe="45m"><td>45m</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+    <tr data-timeframe="4h"><td>4h</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+    <tr data-timeframe="1d"><td>1d</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+    <tr data-timeframe="1w"><td>1w</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+    <tr data-timeframe="1M"><td>1M</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+  </tbody>
 </table>
-
+</div>
 <script>
-// --- Bitfinex VWAP/Std/High/Low live calculation ---
-const bfTrades = [];
-const BF_WINDOW_MS = 60000; // 1 minute rolling window
+const timeframes = ['1m','15m','45m','4h','1d','1w','1M'];
+const tradeBuffers = {
+  '1m': [], '15m': [], '45m': [], '4h': [], '1d': [], '1w': [], '1M': []
+};
 
-function updateBitfinexVWAP(price, volume, timestamp){
-    if(!price || !volume) return;
-    if(timestamp<10000000000) timestamp*=1000;
-    bfTrades.push({price, volume, ts: timestamp});
+const timeframeMs = {
+  '1m': 60*1000,
+  '15m': 15*60*1000,
+  '45m': 45*60*1000,
+  '4h': 4*60*60*1000,
+  '1d': 24*60*60*1000,
+  '1w': 7*24*60*60*1000,
+  '1M': 30*24*60*60*1000
+};
 
-    // Remove old trades
-    const cutoff = Date.now() - BF_WINDOW_MS;
-    while(bfTrades.length && bfTrades[0].ts < cutoff) bfTrades.shift();
-
-    if(bfTrades.length===0) return;
-
-    // VWAP
-    let sumPV=0, sumV=0, prices=[];
-    bfTrades.forEach(t=>{
-        sumPV += t.price * t.volume;
-        sumV += t.volume;
-        prices.push(t.price);
-    });
-    const vwap = sumPV/sumV;
-
-    // Std1 / Std2
-    const mean = vwap;
-    const variance = prices.reduce((a,p)=>a+Math.pow(p-mean,2),0)/prices.length;
-    const std1 = Math.sqrt(variance);
-    const std2 = std1 * 2;
-
-    // High / Low
-    const high = Math.max(...prices);
-    const low = Math.min(...prices);
-
-    // Render
-    document.getElementById('vwap').textContent = vwap.toFixed(2);
-    document.getElementById('std1').textContent = std1.toFixed(2);
-    document.getElementById('std2').textContent = std2.toFixed(2);
-    document.getElementById('high').textContent = high.toFixed(2);
-    document.getElementById('low').textContent = low.toFixed(2);
+function calculateStats(trades) {
+  if(trades.length === 0) return {vwap:'-', std1:'-', std2:'-', high:'-', low:'-'};
+  let totalVol = 0, vwapSum = 0;
+  let prices = trades.map(t=>t.price);
+  trades.forEach(t => { totalVol += t.amount; vwapSum += t.price * t.amount; });
+  let vwap = vwapSum / totalVol;
+  let mean = vwap;
+  let variance = prices.reduce((sum,p) => sum + Math.pow(p-mean,2),0)/prices.length;
+  let std = Math.sqrt(variance);
+  return {
+    vwap: vwap.toFixed(2),
+    std1: (vwap + std).toFixed(2),
+    std2: (vwap + 2*std).toFixed(2),
+    high: Math.max(...prices).toFixed(2),
+    low: Math.min(...prices).toFixed(2)
+  };
 }
 
-// Example: Hook this function to your Bitfinex WebSocket trade feed
-// bfTradesWebSocket.onmessage = (msg) => {
-//    const data = JSON.parse(msg.data);
-//    if(data && data.price && data.amount) updateBitfinexVWAP(data.price, data.amount, Date.now());
-// };
+function updateTable() {
+  timeframes.forEach(tf => {
+    const stats = calculateStats(tradeBuffers[tf]);
+    const row = document.querySelector(`tr[data-timeframe="${tf}"]`);
+    row.cells[1].innerText = stats.vwap;
+    row.cells[2].innerText = stats.std1;
+    row.cells[3].innerText = stats.std2;
+    row.cells[4].innerText = stats.high;
+    row.cells[5].innerText = stats.low;
+  });
+}
+
+// WebSocket to Bitfinex trades
+const ws = new WebSocket('wss://api-pub.bitfinex.com/ws/2');
+ws.onopen = () => {
+  ws.send(JSON.stringify({ event: 'subscribe', channel: 'trades', symbol: 'tBTCUSD' }));
+};
+
+ws.onmessage = msg => {
+  const data = JSON.parse(msg.data);
+  if(Array.isArray(data) && data[1] !== 'hb') {
+    const trades = data[1]; // array of trades
+    trades.forEach(tr => {
+      if(tr[1] === 't') {
+        const price = tr[3], amount = tr[2], ts = tr[1];
+        const trade = {price, amount, ts: Date.now()};
+        timeframes.forEach(tf => {
+          tradeBuffers[tf].push(trade);
+          // Remove old trades
+          tradeBuffers[tf] = tradeBuffers[tf].filter(t => t.ts >= Date.now() - timeframeMs[tf]);
+        });
+      }
+    });
+    updateTable();
+  }
+};
 </script>
-
-</div>
-
 <script>
 let lastSeenTradeTime = null;
 let lastTotalPnl = null;
