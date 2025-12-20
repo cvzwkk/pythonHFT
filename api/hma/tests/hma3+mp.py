@@ -243,10 +243,10 @@ class PaperTrader:
                 "adds": 0,
                 "entries": 1,  # entry + dca counter
                 "next_add_price": (
-                    price * (1 - self.adjust_step_pct)
+                    price - self.adjust_step_abs
                     if side == "buy"
-                    else price * (1 + self.adjust_step_pct)
-                )
+                    else price + self.adjust_step_abs
+                ),
             }
 
             self.trade_history.append({
