@@ -255,7 +255,9 @@ async function updateTable() {
     const thBody = document.querySelector('#tradeHistoryTable tbody');
     thBody.innerHTML = '';
 
-    const trades = [...(data.last_trades || [])].reverse();
+    const trades = [...(data.last_trades || [])]
+  .slice(-10)
+  .reverse();
 
     for (const trade of trades) {
       const row = document.createElement('tr');
