@@ -33,7 +33,7 @@ conf.get_default().ngrok_port = NGROK_DASHBOARD_PORT
 
 # ===== Binance US Client =====
 # Use tld='us' so python-binance talks to Binance US
-client = Client(BINANCE_API_KEY, BINANCE_API_SECRET, tld='us')
+client = Client(tld='us')
 
 # ===== Timeframes =====
 TF_MAP = {
@@ -953,8 +953,6 @@ renderAggTable = function () {
   updateAggSnapshot();
 };
 </script>
-
-"""
 
 
 </body>
