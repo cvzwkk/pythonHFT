@@ -892,10 +892,7 @@ renderAggTable = function () {
 <div id="divResize4" style="position: absolute; left: 0%; top: 68%; height: 100%; width: 100%">
 
 <!-- TradingView Widget BEGIN -->
-<div class="tradingview-widget-container" style="height:100%;width:100%">
-  <div class="tradingview-widget-container__widget" style="height:calc(100% - 32px);width:100%"></div>
-  <div class="tradingview-widget-copyright"><a href="https://www.tradingview.com/symbols/BTCUSD/?exchange=BITFINEX" rel="noopener nofollow" target="_blank"><span class="blue-text">Bitcoin price</span></a><span class="trademark"> by TradingView</span></div>
-  <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+<script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
   {
   "allow_symbol_change": true,
   "calendar": false,
