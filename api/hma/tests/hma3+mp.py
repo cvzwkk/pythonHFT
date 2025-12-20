@@ -292,12 +292,12 @@ class PaperTrader:
         pos["adds"] += 1
         pos["entries"] += 1
 
-        "next_add_price": (
-           price - self.adjust_step_abs  # buy triggers at price micro-dip
-           if side == "buy"
-           else price + self.adjust_step_abs  # sell triggers at tiny rise
+        # ✅ FIXED LINE
+        pos["next_add_price"] = (
+            price - self.adjust_step_abs
+            if side == "buy"
+            else price + self.adjust_step_abs
         )
-
 
         self.trade_history.append({
             "exchange": ex,
@@ -309,6 +309,7 @@ class PaperTrader:
             "pnl": None,
             "time": datetime.now().strftime("%H:%M:%S")
         })
+
 
     # =========================
     # TAKE PROFIT
