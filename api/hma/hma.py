@@ -119,7 +119,7 @@ MODELS = {
 # PAPER TRADER (DCA ENGINE)
 # =========================
 class PaperTrader:
-    def __init__(self, balance=1_000_000):
+    def __init__(self, balance=1_000):
         self.initial_balance = balance
         self.balance = balance
 
@@ -129,11 +129,11 @@ class PaperTrader:
 
         # ---- risk controls ----
         self.trading_halted = False
-        self.max_adds = 35
+        self.max_adds = 12
         self.global_equity_stop_pct = -0.25  # -25%
 
         # ---- DCA params ----
-        self.entry_size = 0.01               # BTC
+        self.entry_size = 0.00031               # BTC
         self.add_ratio = 0.86                # 86% of total BTC
         self.adjust_step_pct = 0.001 / 100   # 0.001%
         self.take_profit_pct = 0.009 / 100   # 0.009%
