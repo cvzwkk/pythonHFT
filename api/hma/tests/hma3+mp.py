@@ -129,9 +129,10 @@ MODELS = {
 # PAPER TRADER (DCA ENGINE)
 # =========================
 class PaperTrader:
-    def __init__(self, balance=1000):
+    def __init__(self, balance=0.02):
         self.initial_balance = balance
         self.balance = balance
+
 
         self.positions = {e: None for e in ORDERBOOK_APIS}
         self.pnl = {e: 0.0 for e in ORDERBOOK_APIS}
@@ -164,13 +165,14 @@ class PaperTrader:
         avg = pos["avg_entry"]
 
         pnl = (
-            (price - avg) * size
+            ((price - avg) * size) / price
             if side == "buy"
-            else (avg - price) * size
+            else ((avg - price) * size) / price
         )
 
         self.balance += pnl
         self.pnl[ex] += pnl
+
         self.positions[ex] = None
 
         self.trade_history.append({
@@ -202,10 +204,10 @@ class PaperTrader:
             avg = pos["avg_entry"]
 
             unreal = (
-                (price - avg) * size
+                ((price - avg) * size) / price
                 if side == "buy"
-                else (avg - price) * size
-            )
+                else ((avg - price) * size) / price
+           )
 
             equity += unreal
 
