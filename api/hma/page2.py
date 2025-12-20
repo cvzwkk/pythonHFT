@@ -889,7 +889,7 @@ renderAggTable = function () {
 };
 </script>
 
-<div id="divResize5" style="position: absolute; left: 0%; top: 102%; height: 12%; width: 12%">
+<div id="divResize5" style="position: absolute; left: 0%; top: 144%; height: 12%; width: 12%">
 <img src="https://alternative.me/crypto/fear-and-greed-index.png" alt="Latest Crypto Fear & Greed Index" />
 </div>
 <div id="divResize4" style="position: absolute; left: 0%; top: 104%; height: 32%; width: 100%">
