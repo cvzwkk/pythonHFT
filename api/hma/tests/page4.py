@@ -581,3 +581,35 @@ renderAggTable = function () {
   updateAggSnapshot();
 };
 </script>
+"""
+
+# =============================
+# ROUTES
+# =============================
+@app.get("/", response_class=HTMLResponse)
+def home():
+    return HTML_PAGE
+
+
+@app.get("/data")
+def get_data():
+    try:
+        return requests.get(API_URL, timeout=5).json()
+    except:
+        return {
+            "timestamp": "-",
+            "balance": 0,
+            "total_pnl": 0,
+            "exchanges": {},
+            "last_trades": []
+        }
+
+# =============================
+# MAIN
+# =============================
+if __name__ == "__main__":
+    public_url = ngrok.connect(addr=LOCAL_PORT, bind_tls=True)
+    print(f"Public URL: {public_url}")
+    print(f"Ngrok dashboard port: {NGROK_DASHBOARD_PORT}")
+
+    uvicorn.run(app, host="0.0.0.0", port=LOCAL_PORT)
