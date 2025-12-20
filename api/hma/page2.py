@@ -6,6 +6,15 @@ from fastapi.responses import HTMLResponse
 import requests
 from pyngrok import ngrok, conf
 import uvicorn
+from binance.client import Client
+import nest_asyncio
+import asyncio
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
+from pyngrok import ngrok
+import uvicorn
+import pandas as pd
+from binance.client import Client
 
 # =============================
 # CONFIG
@@ -20,6 +29,20 @@ if NGROK_AUTH_TOKEN:
     conf.get_default().auth_token = NGROK_AUTH_TOKEN
 
 conf.get_default().ngrok_port = NGROK_DASHBOARD_PORT
+
+# ===== Binance US Client =====
+# Use tld='us' so python-binance talks to Binance US
+client = Client(tld='us')
+
+# ===== Timeframes =====
+TF_MAP = {
+    "1m": "1m",
+    "15m": "15m",
+    "1h": "1h",
+    "4h": "4h",
+    "1d": "1d",
+    "1w": "1w"
+}
 
 # =============================
 # FASTAPI
@@ -120,7 +143,7 @@ th { background-color: #f4f4f4; }
 
 
 /* =========================
-   🔥 ADDED: AGGREGATED BOOK
+   ðŸ”¥ ADDED: AGGREGATED BOOK
 ========================= */
 #aggBookTable {
   width: 100%;
@@ -207,7 +230,7 @@ Total PnL: <span id="total_pnl">-</span>
 
 
 <!-- =========================
-     🔥 ADDED: AGGREGATED BOOK
+     ðŸ”¥ ADDED: AGGREGATED BOOK
      BELOW BITFINEX ONLY
 ========================= -->
 
@@ -243,7 +266,39 @@ Total PnL: <span id="total_pnl">-</span>
 </tr>
 </tbody>
 </table>
-  
+
+<h2>Binance US BTC/USDT VWAP / Std / High / Low</h2>
+<table>
+<thead>
+<tr><th>TF</th><th>VWAP</th><th>Std1</th><th>Std2</th><th>High</th><th>Low</th></tr>
+</thead>
+<tbody>
+<tr data-t="1m"><td>1m</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr data-t="15m"><td>15m</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr data-t="1h"><td>1h</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr data-t="4h"><td>4h</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr data-t="1d"><td>1d</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr data-t="1w"><td>1w</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+</tbody>
+</table>
+
+<script>
+async function fetchData(){
+    const res = await fetch("/vwap");
+    const json = await res.json();
+    for(let tf in json){
+        let row = document.querySelector(`tr[data-t="${tf}"]`);
+        row.cells[1].innerText = json[tf].vwap;
+        row.cells[2].innerText = json[tf].std1;
+        row.cells[3].innerText = json[tf].std2;
+        row.cells[4].innerText = json[tf].high;
+        row.cells[5].innerText = json[tf].low;
+    }
+}
+setInterval(fetchData, 1000);
+fetchData();
+</script>
+
 </div>
 
 <script>
@@ -480,14 +535,14 @@ function renderOrderBook(flash) {
 <script>
 /* =========================
    AGGREGATED ORDERBOOK CORE
-   (STATE ONLY – NO WS YET)
+   (STATE ONLY â€“ NO WS YET)
 ========================= */
 
 /*
 Depth buckets:
 Top   = best 0.1%
-Mid   = 0.1% → 0.5%
-Deep  = 0.5% → 1.5%
+Mid   = 0.1% â†’ 0.5%
+Deep  = 0.5% â†’ 1.5%
 */
 
 const AGG_DEPTHS = {
@@ -773,7 +828,7 @@ setInterval(() => {
 
 <script>
 /* =========================
-   AGG BOOK – FLASH LOGIC
+   AGG BOOK â€“ FLASH LOGIC
 ========================= */
 
 const AGG_FLASH_THRESHOLD = 25.0; // BTC delta to flash
@@ -833,9 +888,6 @@ renderAggTable = function () {
 };
 </script>
 
-"""
-
-
 </body>
 </html>
 """
@@ -847,7 +899,36 @@ renderAggTable = function () {
 def home():
     return HTML_PAGE
 
+# ===== VWAP / STD Endpoint =====
+def compute_stats(symbol="BTCUSDT", interval="1m", limit=100):
+    try:
+        klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
+    except Exception as e:
+        return {"vwap":"ERR","std1":"ERR","std2":"ERR","high":"ERR","low":"ERR"}
 
+    df = pd.DataFrame(klines, columns=[
+        "open_time","open","high","low","close","volume","close_time","qav","trades",
+        "tbq","tqq","ignore"
+    ])
+    df[["high","low","close","volume"]] = df[["high","low","close","volume"]].astype(float)
+
+    vwap = (df["close"] * df["volume"]).sum() / df["volume"].sum()
+    std = df["close"].std()
+    return {
+        "vwap": round(vwap,2),
+        "std1": round(vwap+std,2),
+        "std2": round(vwap+2*std,2),
+        "high": round(df["high"].max(),2),
+        "low": round(df["low"].min(),2)
+    }
+
+@app.get("/vwap")
+async def vwap():
+    result={}
+    for tf, interval in TF_MAP.items():
+        result[tf] = compute_stats(interval=interval)
+    return result
+    
 @app.get("/data")
 def get_data():
     try:
