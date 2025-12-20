@@ -54,8 +54,9 @@ def log_returns(prices):
 # SPREAD FUNCTION (ONLY EDIT)
 # =========================
 def micro_price(bid, ask, bid_sz, ask_sz):
-    # Real Bitfinex taker execution (simulate 1 real trade crossing spread)
-    return ask
+    # Real live Bitfinex spread applied (mid + half spread)
+    return (bid + ask) / 2 + (ask - bid) / 2
+
 
 # =========================
 # HMA MODELS
