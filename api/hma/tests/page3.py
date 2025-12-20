@@ -302,15 +302,17 @@ updateTable();
 
 <script>
 /* =========================
-   BITFINEX ORDER BOOK
+   BITFINEX ORDER BOOK (FIXED)
 ========================= */
-
+const BIG_SIZE_THRESHOLD = 5.0;   // BTC size to flash
+const RENDER_INTERVAL_MS = 100;   // 10 FPS max
 const ws = new WebSocket("wss://api-pub.bitfinex.com/ws/2");
 
-let channelId = null;
+let chanId = null;
 let bids = new Map();
 let asks = new Map();
-const MAX_ROWS = 15;
+let needsRender = false;
+let lastBigUpdate = false;
 
 ws.onopen = () => {
   ws.send(JSON.stringify({
@@ -327,15 +329,15 @@ ws.onmessage = (msg) => {
   const data = JSON.parse(msg.data);
 
   if (data.event === "subscribed") {
-    channelId = data.chanId;
+    chanId = data.chanId;
     return;
   }
 
-  if (!Array.isArray(data) || data[0] !== channelId) return;
+  if (!Array.isArray(data) || data[0] !== chanId) return;
 
   const payload = data[1];
 
-  // Snapshot
+  /* SNAPSHOT */
   if (Array.isArray(payload[0])) {
     bids.clear();
     asks.clear();
@@ -345,37 +347,59 @@ ws.onmessage = (msg) => {
       else asks.set(price, Math.abs(amount));
     });
 
-    renderOrderBook();
+    needsRender = true;
     return;
   }
 
-  // Updates
+  /* INCREMENTAL UPDATE */
   const [price, count, amount] = payload;
+
+  let size = Math.abs(amount);
 
   if (count === 0) {
     bids.delete(price);
     asks.delete(price);
   } else {
-    if (amount > 0) bids.set(price, amount);
-    else asks.set(price, Math.abs(amount));
+    if (amount > 0) bids.set(price, size);
+    else asks.set(price, size);
   }
 
-  renderOrderBook(true);
+  if (size >= BIG_SIZE_THRESHOLD) {
+    lastBigUpdate = true;
+  }
+
+  needsRender = true;
 };
 
-function renderOrderBook(flash = false) {
+/* =========================
+   RENDER LOOP (THROTTLED)
+========================= */
+
+setInterval(() => {
+  if (!needsRender) return;
+
+  renderOrderBook(lastBigUpdate);
+  needsRender = false;
+  lastBigUpdate = false;
+}, RENDER_INTERVAL_MS);
+
+/* =========================
+   RENDER FUNCTION
+========================= */
+
+function renderOrderBook(flash) {
   const tbody = document.querySelector("#orderbookTable tbody");
   tbody.innerHTML = "";
 
   const bidRows = [...bids.entries()]
     .sort((a, b) => b[0] - a[0])
-    .slice(0, MAX_ROWS);
+    .slice(0, 15);
 
   const askRows = [...asks.entries()]
     .sort((a, b) => a[0] - b[0])
-    .slice(0, MAX_ROWS);
+    .slice(0, 15);
 
-  for (let i = 0; i < MAX_ROWS; i++) {
+  for (let i = 0; i < 15; i++) {
     const tr = document.createElement("tr");
 
     const ask = askRows[i];
@@ -393,6 +417,7 @@ function renderOrderBook(flash = false) {
   }
 }
 </script>
+
 
 </body>
 </html>
