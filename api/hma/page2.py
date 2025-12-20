@@ -824,7 +824,7 @@ renderAggTable = function () {
 };
 </script>
 
-<div id="divResize4" style="position: absolute; left: 0%; top: 110%; height: 32%; width: 100%">
+<div id="divResize4" style="position: absolute; left: 0%; top: 93%; height: 32%; width: 100%">
 
 <!-- TradingView Widget BEGIN -->
 <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
