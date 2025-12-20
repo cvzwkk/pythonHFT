@@ -144,7 +144,7 @@ th { background-color: #f4f4f4; }
 
 
 /* =========================
-   ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â¥ ADDED: AGGREGATED BOOK
+   ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â¥ ADDED: AGGREGATED BOOK
 ========================= */
 #aggBookTable {
   width: 100%;
@@ -165,6 +165,7 @@ th { background-color: #f4f4f4; }
 </head>
 
 <body>
+<body>
 <div id="divResize2" style="position: absolute; left: 0%; top: 0%; height: 35%; width: 100%">
 <script type="text/javascript">DukascopyApplet = {"type":"chart","params":{"showUI":true,"showTabs":true,"showParameterToolbar":true,"showOfferSide":true,"allowInstrumentChange":true,"allowPeriodChange":true,"allowOfferSideChange":true,"showAdditionalToolbar":true,"showExportImportWorkspace":true,"allowSocialSharing":true,"showUndoRedoButtons":true,"showDetachButton":false,"presentationType":"candle","axisX":true,"axisY":true,"legend":true,"timeline":true,"showDateSeparators":true,"showZoom":true,"showScrollButtons":true,"showAutoShiftButton":true,"crosshair":true,"borders":false,"freeMode":false,"theme":"Pastelle","uiColor":"#000","availableInstruments":"l:","instrument":"BTC/USD","period":"5","offerSide":"BID","timezone":0,"live":true,"allowPan":true,"indicators":"sDYURGRBVBCMBgvAnIDgCjpTCLOcLjECDsADqAYQEWCsgLADyABF2dzI2QENoGyPx-ABlAFgAJhNsE8b0CgkAMRjO0gsOgvALhOGWWNKturbIQGfhhugj4YThFyVi0E-br1tLTV2QLsBB7uJLxcxP7UgIYKCLJwsAJA.","width":"100%","height":"100%","adv":"popup","lang":"en"}};</script><script type="text/javascript" src="https://freeserv-static.dukascopy.com/2.0/core.js"></script>
 </div>
@@ -174,8 +175,8 @@ th { background-color: #f4f4f4; }
 
 <p>Last updated: <span id="timestamp">-</span></p>
 <p>
-Balance: <span id="balance">-</span> |
-Total PnL: <span id="total_pnl">-</span>
+Balance: <span id="balance">-</span> ( <span id="balance_btc">-</span> BTC ) |
+Total PnL: <span id="total_pnl">-</span> ( <span id="total_pnl_btc">-</span> BTC )
 </p>
 
 <!-- LIVE POSITIONS -->
@@ -187,15 +188,13 @@ Total PnL: <span id="total_pnl">-</span>
 <th>Prediction</th>
 <th>Position</th>
 <th>PnL</th>
+<th>PnL BTC</th>
 </tr>
 </thead>
 <tbody></tbody>
 </table>
 
-
-
 <h2>Last 50 Trades (Newest First)</h2>
-
 <table id="tradeHistoryTable">
 <thead>
 <tr>
@@ -210,62 +209,6 @@ Total PnL: <span id="total_pnl">-</span>
 </tr>
 </thead>
 <tbody></tbody>
-</table>
-
-<!--- <h2>Bitfinex Order Book (BTC/USD)</h2>
-  <table id="orderbookTable">
-    <thead>
-      <tr>
-        <th colspan="2" style="color:red">Asks</th>
-        <th colspan="2" style="color:green">Bids</th>
-      </tr>
-      <tr>
-        <th>Price</th>
-        <th>Size</th>
-        <th>Price</th>
-        <th>Size</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table> ---!>
-
-
-<!-- =========================
-     ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â¥ ADDED: AGGREGATED BOOK
-     BELOW BITFINEX ONLY
-========================= -->
-
-<h2>Aggregated Order Book (Top / Mid / Deep)</h2>
-
-<table id="aggBookTable">
-<thead>
-<tr>
-<th>Depth</th>
-<th style="color:red">Ask Liquidity (BTC)</th>
-<th style="color:green">Bid Liquidity (BTC)</th>
-<th>Imbalance</th>
-</tr>
-</thead>
-<tbody>
-<tr data-level="top">
-<td>Top</td>
-<td>-</td>
-<td>-</td>
-<td>-</td>
-</tr>
-<tr data-level="mid">
-<td>Mid</td>
-<td>-</td>
-<td>-</td>
-<td>-</td>
-</tr>
-<tr data-level="deep">
-<td>Deep</td>
-<td>-</td>
-<td>-</td>
-<td>-</td>
-</tr>
-</tbody>
 </table>
 
 <h2>Binance US BTC/USDT VWAP / Std / High / Low</h2>
@@ -300,8 +243,6 @@ setInterval(fetchData, 5000);
 fetchData();
 </script>
 
-</div>
-
 <script>
 let lastSeenTradeTime = null;
 let lastTotalPnl = null;
@@ -313,24 +254,27 @@ async function updateTable() {
     const data = await res.json();
 
     /* =========================
-       HEADER PnL FLASH
+       HEADER BALANCE / PnL
     ========================= */
     document.getElementById('timestamp').textContent = data.timestamp ?? '-';
     document.getElementById('balance').textContent =
       Number(data.balance ?? 0).toFixed(2);
+    document.getElementById('balance_btc').textContent =
+      ((data.balance ?? 0) / (data.last_price ?? 1)).toFixed(8);
 
     const totalPnlEl = document.getElementById('total_pnl');
     const totalPnl = Number(data.total_pnl ?? 0);
-
     totalPnlEl.textContent = totalPnl.toFixed(6);
     totalPnlEl.className = totalPnl >= 0 ? 'positive' : 'negative';
+
+    document.getElementById('total_pnl_btc').textContent =
+      (totalPnl / (data.last_price ?? 1)).toFixed(8);
 
     if (lastTotalPnl !== null) {
       totalPnlEl.classList.add(
         totalPnl > lastTotalPnl ? 'pnl-up' : 'pnl-down'
       );
     }
-
     lastTotalPnl = totalPnl;
 
     /* =========================
@@ -341,15 +285,14 @@ async function updateTable() {
 
     for (const [exchange, info] of Object.entries(data.exchanges || {})) {
       const pnl = Number(info.pnl ?? 0);
+      const pnlBTC = pnl / (info.price ?? 1);
       const row = document.createElement('tr');
 
       let pnlClass = pnl >= 0 ? 'positive' : 'negative';
       let pnlFlash = '';
-
       if (lastExchangePnl[exchange] !== undefined) {
         pnlFlash = pnl > lastExchangePnl[exchange] ? 'pnl-up' : 'pnl-down';
       }
-
       lastExchangePnl[exchange] = pnl;
 
       row.innerHTML = `
@@ -357,9 +300,8 @@ async function updateTable() {
         <td>${Number(info.price ?? 0).toFixed(2)}</td>
         <td>${info.prediction !== null ? Number(info.prediction).toFixed(2) : '-'}</td>
         <td>${info.position ?? '-'}</td>
-        <td class="${pnlClass} ${pnlFlash}">
-          ${pnl.toFixed(6)}
-        </td>
+        <td class="${pnlClass} ${pnlFlash}">${pnl.toFixed(6)}</td>
+        <td>${pnlBTC.toFixed(8)}</td>
       `;
       liveBody.appendChild(row);
     }
@@ -370,23 +312,16 @@ async function updateTable() {
     const thBody = document.querySelector('#tradeHistoryTable tbody');
     thBody.innerHTML = '';
 
-    const trades = [...(data.last_trades || [])]
-  .slice(-10)
-  .reverse();
-
+    const trades = [...(data.last_trades || [])].slice(-10).reverse();
     for (const trade of trades) {
       const row = document.createElement('tr');
-
       if (lastSeenTradeTime && trade.time > lastSeenTradeTime) {
         if (trade.type === 'CLOSE') {
-          row.classList.add(
-            (trade.pnl ?? 0) >= 0 ? 'close-win' : 'close-loss'
-          );
+          row.classList.add((trade.pnl ?? 0) >= 0 ? 'close-win' : 'close-loss');
         } else {
           row.classList.add('add-trade');
         }
       }
-
       row.innerHTML = `
         <td>${trade.time}</td>
         <td>${trade.exchange}</td>
@@ -401,10 +336,7 @@ async function updateTable() {
       `;
       thBody.appendChild(row);
     }
-
-    if (trades.length > 0) {
-      lastSeenTradeTime = trades[0].time;
-    }
+    if (trades.length > 0) lastSeenTradeTime = trades[0].time;
 
   } catch (err) {
     console.error("LIVE UPDATE ERROR:", err);
@@ -413,6 +345,9 @@ async function updateTable() {
 
 setInterval(updateTable, 5000);
 updateTable();
+</script>
+</div>
+
 </script>
 
 <! --- <script>
@@ -536,14 +471,14 @@ function renderOrderBook(flash) {
 <script>
 /* =========================
    AGGREGATED ORDERBOOK CORE
-   (STATE ONLY ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“ NO WS YET)
+   (STATE ONLY ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ NO WS YET)
 ========================= */
 
 /*
 Depth buckets:
 Top   = best 0.1%
-Mid   = 0.1% ÃƒÂ¢Ã¢â‚¬ Ã¢â‚¬â„¢ 0.5%
-Deep  = 0.5% ÃƒÂ¢Ã¢â‚¬ Ã¢â‚¬â„¢ 1.5%
+Mid   = 0.1% ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬ ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ 0.5%
+Deep  = 0.5% ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬ ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ 1.5%
 */
 
 const AGG_DEPTHS = {
@@ -829,7 +764,7 @@ setInterval(() => {
 
 <script>
 /* =========================
-   AGG BOOK ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“ FLASH LOGIC
+   AGG BOOK ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ FLASH LOGIC
 ========================= */
 
 const AGG_FLASH_THRESHOLD = 25.0; // BTC delta to flash
@@ -889,10 +824,7 @@ renderAggTable = function () {
 };
 </script>
 
-<div id="divResize5" style="position: absolute; left: 0%; top: 144%; height: 12%; width: 12%">
-<img src="https://alternative.me/crypto/fear-and-greed-index.png" alt="Latest Crypto Fear & Greed Index" />
-</div>
-<div id="divResize4" style="position: absolute; left: 0%; top: 104%; height: 32%; width: 100%">
+<div id="divResize4" style="position: absolute; left: 0%; top: 110%; height: 32%; width: 100%">
 
 <!-- TradingView Widget BEGIN -->
 <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
@@ -972,15 +904,38 @@ async def vwap():
 @app.get("/data")
 def get_data():
     try:
-        return requests.get(API_URL, timeout=5).json()
-    except:
+        data = requests.get(API_URL, timeout=5).json()
+
+        # Get latest BTC price from exchanges
+        last_price = 1
+        for ex_data in data.get("exchanges", {}).values():
+            if ex_data.get("price"):
+                last_price = ex_data["price"]
+                break
+
+        balance_usd = data.get("balance", 0)
+        total_pnl_usd = data.get("total_pnl", 0)
+
+        # Convert to BTC
+        data["balance_btc"] = round(balance_usd / last_price, 8)
+        data["total_pnl_btc"] = round(total_pnl_usd / last_price, 8)
+        data["last_price"] = last_price
+
+        return data
+
+    except Exception as e:
+        print("DATA FETCH ERROR:", e)
         return {
             "timestamp": "-",
             "balance": 0,
+            "balance_btc": 0,
             "total_pnl": 0,
+            "total_pnl_btc": 0,
+            "last_price": 1,
             "exchanges": {},
             "last_trades": []
         }
+
 
 # =============================
 # MAIN
