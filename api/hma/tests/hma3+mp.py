@@ -60,59 +60,19 @@ def micro_price(bid, ask, bid_sz, ask_sz):
 # =========================
 # HMA MODELS
 # =========================
-def predict_hma_robust(prices, period=58):
-    if len(prices) < 4:
+def predict_hma(prices, period=7):
+    if len(prices) < 7:
         return None
 
-    prices = np.array(prices, dtype=np.float64)
-    prices = pd.Series(prices).ffill().bfill().values
+    w = np.array([1,2,3,4,3,2,1], dtype=np.float64)
+    w /= w.sum()
 
-    def wma(arr, n):
-        n = min(len(arr), n)
-        weights = np.arange(1, n + 1)
-        return np.dot(arr[-n:], weights) / weights.sum()
+    return float(np.dot(prices[-7:], w))
 
-    half = max(2, period // 2)
-    half = min(half, len(prices))
-    period = min(period, len(prices))
-
-    hma = 2 * wma(prices, half) - wma(prices, period)
-
-    slope_len = min(half, len(prices) - 1)
-    slope = np.polyfit(
-        np.arange(slope_len + 1),
-        prices[-slope_len - 1:],
-        1
-    )[0]
-
-    returns = np.diff(np.log(prices + 1e-9))
-    momentum = (
-        np.sum(np.exp(-np.linspace(0, 3, len(returns))) * returns)
-        if len(returns) > 1 else 0.0
-    )
-
-    vol = np.std(returns[-half:]) + 1e-9
-    vol_boost = np.tanh(vol * 80)
-
-    log_prices = np.log(prices + 1e-9)
-    z = (log_prices[-1] - log_prices.mean()) / (np.std(log_prices) + 1e-9)
-    mr_factor = np.tanh(-0.3 * z)
-
-    forecast = (
-        hma
-        + slope * (1 + vol_boost)
-        + momentum * 0.5
-        + mr_factor * vol * 0.3
-    )
-
-    return safe_return(forecast)
-
-def predict_hma_robust2(prices, period=10):
-    return predict_hma_robust(prices, period=period)
 
 MODELS = {
-    "HMA": predict_hma_robust,
-    "HMA2": predict_hma_robust2,
+    "HMA": predict_hma,
+    #"HMA2": predict_hma_robust2,
 }
 
 # =========================
@@ -129,10 +89,9 @@ MODELS = {
 # PAPER TRADER (DCA ENGINE)
 # =========================
 class PaperTrader:
-    def __init__(self, balance=0.02):
+    def __init__(self, balance=1000):
         self.initial_balance = balance
         self.balance = balance
-
 
         self.positions = {e: None for e in ORDERBOOK_APIS}
         self.pnl = {e: 0.0 for e in ORDERBOOK_APIS}
@@ -146,11 +105,8 @@ class PaperTrader:
         # ---- DCA params ----
         self.entry_size = 0.00031               # BTC
         self.add_ratio = 0.27                # 86% of total BTC
-        # how many USD from entry to add (e.g., 0.0001 = 0.01 cents)
-        self.adjust_step_abs = 0.0001  
-        # take profit target (e.g., 0.0005 = 0.05 cents)
-        self.take_profit_abs = 0.0005  
-
+        self.adjust_step_pct = 0.003 / 100   # 0.001%
+        self.take_profit_pct = 0.009 / 100   # 0.009%
 
     # =========================
     # FORCE CLOSE (UNIFIED)
@@ -165,14 +121,13 @@ class PaperTrader:
         avg = pos["avg_entry"]
 
         pnl = (
-            ((price - avg) * size) / price
+            (price - avg) * size
             if side == "buy"
-            else ((avg - price) * size) / price
+            else (avg - price) * size
         )
 
         self.balance += pnl
         self.pnl[ex] += pnl
-
         self.positions[ex] = None
 
         self.trade_history.append({
@@ -204,10 +159,10 @@ class PaperTrader:
             avg = pos["avg_entry"]
 
             unreal = (
-                ((price - avg) * size) / price
+                (price - avg) * size
                 if side == "buy"
-                else ((avg - price) * size) / price
-           )
+                else (avg - price) * size
+            )
 
             equity += unreal
 
@@ -245,10 +200,10 @@ class PaperTrader:
                 "adds": 0,
                 "entries": 1,  # entry + dca counter
                 "next_add_price": (
-                    price - self.adjust_step_abs
+                    price * (1 - self.adjust_step_pct)
                     if side == "buy"
-                    else price + self.adjust_step_abs
-                ),
+                    else price * (1 + self.adjust_step_pct)
+                )
             }
 
             self.trade_history.append({
@@ -294,11 +249,10 @@ class PaperTrader:
         pos["adds"] += 1
         pos["entries"] += 1
 
-        # ✅ FIXED LINE
         pos["next_add_price"] = (
-            price - self.adjust_step_abs
+            price * (1 - self.adjust_step_pct)
             if side == "buy"
-            else price + self.adjust_step_abs
+            else price * (1 + self.adjust_step_pct)
         )
 
         self.trade_history.append({
@@ -311,7 +265,6 @@ class PaperTrader:
             "pnl": None,
             "time": datetime.now().strftime("%H:%M:%S")
         })
-
 
     # =========================
     # TAKE PROFIT
@@ -330,10 +283,8 @@ class PaperTrader:
             else (avg - price) / avg
         )
 
-        diff = (price - avg) if side == "buy" else (avg - price)
-        if diff >= self.take_profit_abs:
+        if pnl_pct >= self.take_profit_pct:
             self.force_close(ex, price, "TP")
-
 
     # =========================
     # TOTAL PNL
@@ -452,11 +403,11 @@ async def update_prices():
                     else None
                 )
 
-                pred_hma2 = (
-                    MODELS["HMA2"](list(history[ex]))
-                    if len(history[ex]) >= 12
-                    else None
-                )
+                #pred_hma2 = (
+                #   MODELS["HMA2"](list(history[ex]))
+                #   if len(history[ex]) >= 12
+                #   else None
+                #)
 
                 pos = trader.positions[ex]
 
