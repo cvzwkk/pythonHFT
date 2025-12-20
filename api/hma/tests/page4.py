@@ -15,6 +15,7 @@ from pyngrok import ngrok
 import uvicorn
 import pandas as pd
 from binance.client import Client
+from river import linear_model, preprocessing
 
 # =============================
 # CONFIG
@@ -44,6 +45,38 @@ TF_MAP = {
     "1w": "1w"
 }
 
+# ===== River Models =====
+models = {tf: preprocessing.StandardScaler() | linear_model.LogisticRegression() for tf in TF_MAP.keys()}
+
+# ===== Feature Computation =====
+def compute_features(df):
+    df[["close","high","low","volume"]] = df[["close","high","low","volume"]].astype(float)
+    # EMA
+    ema20 = df["close"].ewm(span=20, adjust=False).mean().iloc[-1]
+    ema50 = df["close"].ewm(span=50, adjust=False).mean().iloc[-1]
+    # HMA
+    def hma(series, period=30):
+        half_len = int(period/2)
+        wma1 = series.rolling(half_len).mean()
+        wma2 = series.rolling(period).mean()
+        diff = 2*wma1 - wma2
+        return diff.rolling(int(period**0.5)).mean()
+    hma30 = hma(df["close"],30).iloc[-1]
+    hma60 = hma(df["close"],60).iloc[-1]
+    # Donchian midline
+    donchian_mid = (df["high"].rolling(20).max() + df["low"].rolling(20).min())/2
+    donchian_mid = donchian_mid.iloc[-1]
+    # Std
+    std = df["close"].std()
+    return {
+        "ema20": ema20,
+        "ema50": ema50,
+        "hma30": hma30,
+        "hma60": hma60,
+        "donchian_mid": donchian_mid,
+        "std": std
+    }
+    
 # =============================
 # FASTAPI
 # =============================
@@ -298,6 +331,39 @@ async function fetchData(){
 setInterval(fetchData, 1000);
 fetchData();
 </script>
+
+<h2>Binance US BTC/USDT Trend Prediction (River)</h2>
+<table>
+<thead>
+<tr><th>TF</th><th>Trend</th></tr>
+</thead>
+<tbody>
+<tr data-t="1m"><td>1m</td><td>-</td></tr>
+<tr data-t="15m"><td>15m</td><td>-</td></tr>
+<tr data-t="1h"><td>1h</td><td>-</td></tr>
+<tr data-t="4h"><td>4h</td><td>-</td></tr>
+<tr data-t="1d"><td>1d</td><td>-</td></tr>
+<tr data-t="1w"><td>1w</td><td>-</td></tr>
+</tbody>
+</table>
+
+<script>
+async function fetchData(){
+    try{
+        const res = await fetch("/trend");
+        const json = await res.json();
+        for(let tf in json){
+            let row = document.querySelector(`tr[data-t="${tf}"]`);
+            row.cells[1].innerText = json[tf];
+        }
+    }catch(err){
+        console.error(err);
+    }
+}
+setInterval(fetchData, 1000);  // refresh every 1 second
+fetchData();
+</script>
+
 
 </div>
 
@@ -924,6 +990,28 @@ def compute_stats(symbol="BTCUSDT", interval="1m", limit=100):
         "high": round(df["high"].max(),2),
         "low": round(df["low"].min(),2)
     }
+
+# ===== Trend Endpoint =====
+@app.get("/trend")
+async def trend():
+    result = {}
+    for tf, interval in TF_MAP.items():
+        try:
+            klines = client.get_klines(symbol="BTCUSDT", interval=interval, limit=100)
+            df = pd.DataFrame(klines, columns=[
+                "open_time","open","high","low","close","volume","close_time","qav","trades",
+                "tbq","tqq","ignore"
+            ])
+            features = compute_features(df)
+            # target: 1 if last close > previous close else 0
+            y = 1 if df["close"].iloc[-1] > df["close"].iloc[-2] else 0
+            pred = models[tf].predict_one(features)
+            models[tf].learn_one(features, y)  # online update
+            trend_label = "UP" if pred==1 else "DOWN"
+            result[tf] = trend_label
+        except:
+            result[tf] = "ERR"
+    return result    
 
 @app.get("/vwap")
 async def vwap():
