@@ -121,7 +121,7 @@ MODELS = {
 # ... EVERYTHING BELOW IS 100% IDENTICAL TO YOUR ORIGINAL CODE ...
 # (no logic, math, structure, or flow modified)
 
-# [SNIPPED Ã¢â‚¬â€ remainder unchanged exactly as provided]
+# [SNIPPED ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â remainder unchanged exactly as provided]
 
 
 
@@ -573,7 +573,7 @@ async def main():
     asyncio.create_task(update_prices())
 
     public_url = ngrok.connect(8000, "http")
-    print(f"Ã°Å¸Å¡â‚¬ Public URL: {public_url}")
+    print(f"ÃƒÂ°Ã…Â¸Ã…Â¡Ã¢â€šÂ¬ Public URL: {public_url}")
 
     config = uvicorn.Config(
         app=app,
