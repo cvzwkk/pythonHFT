@@ -359,47 +359,7 @@ setInterval(updateTable, 1000);
 updateTable();
 </script>
 
-<script>
-/* =========================
-   BITFINEX ORDER BOOK (FIXED)
-========================= */
-const BIG_SIZE_THRESHOLD = 5.0;   // BTC size to flash
-const RENDER_INTERVAL_MS = 100;   // 10 FPS max
-const ws = new WebSocket("wss://api-pub.bitfinex.com/ws/2");
-
-let chanId = null;
-let bids = new Map();
-let asks = new Map();
-let needsRender = false;
-let lastBigUpdate = false;
-
-ws.onopen = () => {
-  ws.send(JSON.stringify({
-    event: "subscribe",
-    channel: "book",
-    symbol: "tBTCUSD",
-    prec: "P0",
-    freq: "F0",
-    len: 25
-  }));
-};
-
-ws.onmessage = (msg) => {
-  const data = JSON.parse(msg.data);
-
-  if (data.event === "subscribed") {
-    chanId = data.chanId;
-    return;
-  }
-
-  if (!Array.isArray(data) || data[0] !== chanId) return;
-
-  const payload = data[1];
-
-  /* SNAPSHOT */
-  if (Array.isArray(payload[0])) {
-    bids.clear();
-    asks.clear();
+();
 
     payload.forEach(([price, count, amount]) => {
       if (amount > 0) bids.set(price, amount);
@@ -611,6 +571,105 @@ function renderOrderBook(flash) {
    AGG BOOK – FLASH LOGIC
 ========================= */
 
+      book.asks.clear();
+      d.bids.forEach(([p, s]) => book.bids.set(+p, +s));
+      d.asks.forEach(([p, s]) => book.asks.set(+p, +s));
+    }
+
+    if (d.type === "l2update") {
+      d.changes.forEach(([side, p, s]) => {
+        const map = side === "buy" ? book.bids : book.asks;
+        if (+s === 0) map.delete(+p);
+        else map.set(+p, +s);
+      });
+    }
+
+    book.mid = calcMid(book.bids, book.asks);
+  };
+})();
+
+/* =========================
+   OKX (BTC-USDT)
+========================= */
+(() => {
+  const ws = new WebSocket("wss://ws.okx.com:8443/ws/v5/public");
+  ws.onopen = () => ws.send(JSON.stringify({
+    op: "subscribe",
+    args: [{ channel: "books", instId: "BTC-USDT" }]
+  }));
+
+  ws.onmessage = e => {
+    const d = JSON.parse(e.data);
+    if (!d.data) return;
+
+    const book = aggBooks.okx;
+    book.bids.clear();
+    book.asks.clear();
+
+    d.data[0].bids.forEach(([p, s]) => book.bids.set(+p, +s));
+    d.data[0].asks.forEach(([p, s]) => book.asks.set(+p, +s));
+
+    book.mid = calcMid(book.bids, book.asks);
+  };
+})();
+
+/* =========================
+   HUOBI (BTCUSDT)
+========================= */
+(() => {
+  const ws = new WebSocket("wss://api.huobi.pro/ws");
+  ws.binaryType = "arraybuffer";
+
+  ws.onopen = () => ws.send(JSON.stringify({
+    sub: "market.btcusdt.depth.step0",
+    id: "huobi"
+  }));
+
+  ws.onmessage = e => {
+    const d = JSON.parse(pako.inflate(e.data, { to: "string" }));
+    if (!d.tick) return;
+
+    const book = aggBooks.huobi;
+    book.bids.clear();
+    book.asks.clear();
+
+    d.tick.bids.forEach(([p, s]) => book.bids.set(+p, +s));
+    d.tick.asks.forEach(([p, s]) => book.asks.set(+p, +s));
+
+    book.mid = calcMid(book.bids, book.asks);
+  };
+})();
+
+/* =========================
+   BITSTAMP (BTC/USD)
+========================= */
+(() => {
+  const ws = new WebSocket("wss://ws.bitstamp.net");
+  ws.onopen = () => ws.send(JSON.stringify({
+    event: "bts:subscribe",
+    data: { channel: "order_book_btcusd" }
+  }));
+
+  ws.onmessage = e => {
+    const d = JSON.parse(e.data);
+    if (!d.data) return;
+
+    const book = aggBooks.bitstamp;
+    book.bids.clear();
+    book.asks.clear();
+
+    d.data.bids.forEach(([p, s]) => book.bids.set(+p, +s));
+    d.data.asks.forEach(([p, s]) => book.asks.set(+p, +s));
+
+    book.mid = calcMid(book.bids, book.asks);
+  };
+})();
+</script>
+<script>
+/* =========================
+   AGG BOOK – FLASH LOGIC
+========================= */
+
 const AGG_FLASH_THRESHOLD = 25.0; // BTC delta to flash
 
 const lastAggSnapshot = {
@@ -666,6 +725,124 @@ renderAggTable = function () {
 
   updateAggSnapshot();
 };
+</script>
+
+<cript>
+/* =========================
+   BITFINEX ORDER BOOK (FIXED)
+========================= */
+const BIG_SIZE_THRESHOLD = 5.0;   // BTC size to flash
+const RENDER_INTERVAL_MS = 100;   // 10 FPS max
+const ws = new WebSocket("wss://api-pub.bitfinex.com/ws/2");
+
+let chanId = null;
+let bids = new Map();
+let asks = new Map();
+let needsRender = false;
+let lastBigUpdate = false;
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({
+    event: "subscribe",
+    channel: "book",
+    symbol: "tBTCUSD",
+    prec: "P0",
+    freq: "F0",
+    len: 25
+  }));
+};
+
+ws.onmessage = (msg) => {
+  const data = JSON.parse(msg.data);
+
+  if (data.event === "subscribed") {
+    chanId = data.chanId;
+    return;
+  }
+
+  if (!Array.isArray(data) || data[0] !== chanId) return;
+
+  const payload = data[1];
+
+  /* SNAPSHOT */
+  if (Array.isArray(payload[0])) {
+    bids.clear();
+    asks.clear();
+
+    payload.forEach(([price, count, amount]) => {
+      if (amount > 0) bids.set(price, amount);
+      else asks.set(price, Math.abs(amount));
+    });
+
+    needsRender = true;
+    return;
+  }
+
+  /* INCREMENTAL UPDATE */
+  const [price, count, amount] = payload;
+
+  let size = Math.abs(amount);
+
+  if (count === 0) {
+    bids.delete(price);
+    asks.delete(price);
+  } else {
+    if (amount > 0) bids.set(price, size);
+    else asks.set(price, size);
+  }
+
+  if (size >= BIG_SIZE_THRESHOLD) {
+    lastBigUpdate = true;
+  }
+
+  needsRender = true;
+};
+
+/* =========================
+   RENDER LOOP (THROTTLED)
+========================= */
+
+setInterval(() => {
+  if (!needsRender) return;
+
+  renderOrderBook(lastBigUpdate);
+  needsRender = false;
+  lastBigUpdate = false;
+}, RENDER_INTERVAL_MS);
+
+/* =========================
+   RENDER FUNCTION
+========================= */
+
+function renderOrderBook(flash) {
+  const tbody = document.querySelector("#orderbookTable tbody");
+  tbody.innerHTML = "";
+
+  const bidRows = [...bids.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .slice(0, 15);
+
+  const askRows = [...asks.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .slice(0, 15);
+
+  for (let i = 0; i < 15; i++) {
+    const tr = document.createElement("tr");
+
+    const ask = askRows[i];
+    const bid = bidRows[i];
+
+    tr.innerHTML = `
+      <td class="ask">${ask ? ask[0].toFixed(2) : ""}</td>
+      <td class="ask">${ask ? ask[1].toFixed(4) : ""}</td>
+      <td class="bid">${bid ? bid[0].toFixed(2) : ""}</td>
+      <td class="bid">${bid ? bid[1].toFixed(4) : ""}</td>
+    `;
+
+    if (flash) tr.classList.add("flash");
+    tbody.appendChild(tr);
+  }
+}
 </script>
 """
 
