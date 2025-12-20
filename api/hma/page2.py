@@ -143,7 +143,7 @@ th { background-color: #f4f4f4; }
 
 
 /* =========================
-   ðŸ”¥ ADDED: AGGREGATED BOOK
+   Ã°Å¸â€Â¥ ADDED: AGGREGATED BOOK
 ========================= */
 #aggBookTable {
   width: 100%;
@@ -211,7 +211,7 @@ Total PnL: <span id="total_pnl">-</span>
 <tbody></tbody>
 </table>
 
-<h2>Bitfinex Order Book (BTC/USD)</h2>
+<!--- <h2>Bitfinex Order Book (BTC/USD)</h2>
   <table id="orderbookTable">
     <thead>
       <tr>
@@ -226,11 +226,11 @@ Total PnL: <span id="total_pnl">-</span>
       </tr>
     </thead>
     <tbody></tbody>
-  </table>
+  </table> ---!>
 
 
 <!-- =========================
-     ðŸ”¥ ADDED: AGGREGATED BOOK
+     Ã°Å¸â€Â¥ ADDED: AGGREGATED BOOK
      BELOW BITFINEX ONLY
 ========================= -->
 
@@ -414,7 +414,7 @@ setInterval(updateTable, 1000);
 updateTable();
 </script>
 
-<script>
+<! --- <script>
 /* =========================
    BITFINEX ORDER BOOK (FIXED)
 ========================= */
@@ -530,19 +530,19 @@ function renderOrderBook(flash) {
     tbody.appendChild(tr);
   }
 }
-</script>
+</script> --!>
 
 <script>
 /* =========================
    AGGREGATED ORDERBOOK CORE
-   (STATE ONLY â€“ NO WS YET)
+   (STATE ONLY Ã¢â‚¬â€œ NO WS YET)
 ========================= */
 
 /*
 Depth buckets:
 Top   = best 0.1%
-Mid   = 0.1% â†’ 0.5%
-Deep  = 0.5% â†’ 1.5%
+Mid   = 0.1% Ã¢â€ â€™ 0.5%
+Deep  = 0.5% Ã¢â€ â€™ 1.5%
 */
 
 const AGG_DEPTHS = {
@@ -828,7 +828,7 @@ setInterval(() => {
 
 <script>
 /* =========================
-   AGG BOOK â€“ FLASH LOGIC
+   AGG BOOK Ã¢â‚¬â€œ FLASH LOGIC
 ========================= */
 
 const AGG_FLASH_THRESHOLD = 25.0; // BTC delta to flash
