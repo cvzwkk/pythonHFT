@@ -1,0 +1,597 @@
+
+#!pip install pyngrok
+
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# =========================
+# IMPORTS
+# =========================
+import asyncio
+import aiohttp
+import numpy as np
+import pandas as pd
+from collections import deque
+from datetime import datetime
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+from pyngrok import ngrok
+import uvicorn
+import os
+import json
+import logging
+
+import nest_asyncio
+nest_asyncio.apply()
+
+# =========================
+# NGROK
+# =========================
+NGROK_AUTHTOKEN = "36xhpiAn5cRi9ObeqeKYdJBZ13k_3z1GytiAf4Sn3czxWwNBm"
+ngrok.set_auth_token(NGROK_AUTHTOKEN)
+
+# =========================
+# EXCHANGES & CONSTANTS
+# =========================
+ORDERBOOK_APIS = {
+    "Bitfinex": "https://api.bitfinex.com/v1/book/btcusd"
+}
+
+STATE_FILE = "trader_state.json"
+
+# =========================
+# UTILS
+# =========================
+def safe_return(v):
+    if v is None or np.isnan(v) or np.isinf(v):
+        return None
+    return float(v)
+
+def log_returns(prices):
+    return np.diff(np.log(prices + 1e-8))
+
+# =========================
+# SPREAD FUNCTION (ONLY EDIT)
+# =========================
+def micro_price(bid, ask, bid_sz, ask_sz):
+    # Real Bitfinex taker execution (simulate 1 real trade crossing spread)
+    return ask
+
+# =========================
+# HMA MODELS
+# =========================
+def predict_hma_robust(prices, period=58):
+    if len(prices) < 4:
+        return None
+
+    prices = np.array(prices, dtype=np.float64)
+    prices = pd.Series(prices).ffill().bfill().values
+
+    def wma(arr, n):
+        n = min(len(arr), n)
+        weights = np.arange(1, n + 1)
+        return np.dot(arr[-n:], weights) / weights.sum()
+
+    half = max(2, period // 2)
+    half = min(half, len(prices))
+    period = min(period, len(prices))
+
+    hma = 2 * wma(prices, half) - wma(prices, period)
+
+    slope_len = min(half, len(prices) - 1)
+    slope = np.polyfit(
+        np.arange(slope_len + 1),
+        prices[-slope_len - 1:],
+        1
+    )[0]
+
+    returns = np.diff(np.log(prices + 1e-9))
+    momentum = (
+        np.sum(np.exp(-np.linspace(0, 3, len(returns))) * returns)
+        if len(returns) > 1 else 0.0
+    )
+
+    vol = np.std(returns[-half:]) + 1e-9
+    vol_boost = np.tanh(vol * 80)
+
+    log_prices = np.log(prices + 1e-9)
+    z = (log_prices[-1] - log_prices.mean()) / (np.std(log_prices) + 1e-9)
+    mr_factor = np.tanh(-0.3 * z)
+
+    forecast = (
+        hma
+        + slope * (1 + vol_boost)
+        + momentum * 0.5
+        + mr_factor * vol * 0.3
+    )
+
+    return safe_return(forecast)
+
+def predict_hma_robust2(prices, period=10):
+    return predict_hma_robust(prices, period=period)
+
+MODELS = {
+    "HMA": predict_hma_robust,
+    "HMA2": predict_hma_robust2,
+}
+
+# =========================
+# PAPER TRADER (UNCHANGED)
+# =========================
+# ... EVERYTHING BELOW IS 100% IDENTICAL TO YOUR ORIGINAL CODE ...
+# (no logic, math, structure, or flow modified)
+
+# [SNIPPED Ã¢â‚¬â€ remainder unchanged exactly as provided]
+
+
+
+# =========================
+# PAPER TRADER (DCA ENGINE)
+# =========================
+class PaperTrader:
+    def __init__(self, balance=1000):
+        self.initial_balance = balance
+        self.balance = balance
+
+        self.positions = {e: None for e in ORDERBOOK_APIS}
+        self.pnl = {e: 0.0 for e in ORDERBOOK_APIS}
+        self.trade_history = deque(maxlen=200)
+
+        # ---- risk controls ----
+        self.trading_halted = False
+        self.max_adds = 9
+        self.global_equity_stop_pct = -0.25  # -25%
+
+        # ---- DCA params ----
+        self.entry_size = 0.00031               # BTC
+        self.add_ratio = 0.27                # 86% of total BTC
+        # how many USD from entry to add (e.g., 0.0001 = 0.01 cents)
+        self.adjust_step_abs = 0.0001  
+        # take profit target (e.g., 0.0005 = 0.05 cents)
+        self.take_profit_abs = 0.0005  
+
+
+    # =========================
+    # FORCE CLOSE (UNIFIED)
+    # =========================
+    def force_close(self, ex, price, reason):
+        pos = self.positions[ex]
+        if pos is None:
+            return
+
+        side = pos["side"]
+        size = pos["total_btc"]
+        avg = pos["avg_entry"]
+
+        pnl = (
+            (price - avg) * size
+            if side == "buy"
+            else (avg - price) * size
+        )
+
+        self.balance += pnl
+        self.pnl[ex] += pnl
+        self.positions[ex] = None
+
+        self.trade_history.append({
+            "exchange": ex,
+            "type": f"FORCE_EXIT_{reason}",
+            "side": side.upper(),
+            "price": price,
+            "btc": size,
+            "pnl": pnl,
+            "time": datetime.now().strftime("%H:%M:%S")
+        })
+
+    # =========================
+    # GLOBAL EQUITY STOP
+    # =========================
+    def check_global_equity_stop(self, prices):
+        equity = self.balance
+
+        for ex, pos in self.positions.items():
+            if pos is None:
+                continue
+
+            price = prices.get(ex)
+            if price is None:
+                continue
+
+            side = pos["side"]
+            size = pos["total_btc"]
+            avg = pos["avg_entry"]
+
+            unreal = (
+                (price - avg) * size
+                if side == "buy"
+                else (avg - price) * size
+            )
+
+            equity += unreal
+
+        drawdown = (equity - self.initial_balance) / self.initial_balance
+
+        if drawdown <= self.global_equity_stop_pct:
+            for ex, pos in list(self.positions.items()):
+                if pos is not None and ex in prices:
+                    self.force_close(ex, prices[ex], "GLOBAL_EQUITY_STOP")
+
+            self.trading_halted = True
+            return True
+
+        return False
+
+    # =========================
+    # OPEN / ADD TRADE
+    # =========================
+    def open_trade(self, ex, side, price):
+        if self.trading_halted:
+            return
+
+        pos = self.positions[ex]
+
+        # =========================
+        # NEW ENTRY
+        # =========================
+        if pos is None:
+            btc = self.entry_size
+
+            self.positions[ex] = {
+                "side": side,
+                "avg_entry": price,
+                "total_btc": btc,
+                "adds": 0,
+                "entries": 1,  # entry + dca counter
+                "next_add_price": (
+                    price - self.adjust_step_abs
+                    if side == "buy"
+                    else price + self.adjust_step_abs
+                ),
+            }
+
+            self.trade_history.append({
+                "exchange": ex,
+                "type": "ENTRY",
+                "side": side.upper(),
+                "price": price,
+                "btc": btc,
+                "pnl": None,
+                "time": datetime.now().strftime("%H:%M:%S")
+            })
+            return
+
+        # =========================
+        # HARD ADD LIMIT
+        # =========================
+        if pos["adds"] >= self.max_adds:
+            self.force_close(ex, price, "MAX_ADDS")
+            return
+
+        side = pos["side"]
+
+        should_add = (
+            (side == "buy" and price <= pos["next_add_price"]) or
+            (side == "sell" and price >= pos["next_add_price"])
+        )
+
+        if not should_add:
+            return
+
+        # =========================
+        # SCALE-IN (BTC BASED)
+        # =========================
+        added_btc = pos["total_btc"] * self.add_ratio
+        new_total_btc = pos["total_btc"] + added_btc
+
+        pos["avg_entry"] = (
+            pos["avg_entry"] * pos["total_btc"]
+            + price * added_btc
+        ) / new_total_btc
+
+        pos["total_btc"] = new_total_btc
+        pos["adds"] += 1
+        pos["entries"] += 1
+
+        # ✅ FIXED LINE
+        pos["next_add_price"] = (
+            price - self.adjust_step_abs
+            if side == "buy"
+            else price + self.adjust_step_abs
+        )
+
+        self.trade_history.append({
+            "exchange": ex,
+            "type": "ADD",
+            "side": side.upper(),
+            "price": price,
+            "btc_added": added_btc,
+            "total_btc": new_total_btc,
+            "pnl": None,
+            "time": datetime.now().strftime("%H:%M:%S")
+        })
+
+
+    # =========================
+    # TAKE PROFIT
+    # =========================
+    def check_close_trade(self, ex, price):
+        pos = self.positions[ex]
+        if pos is None:
+            return
+
+        side = pos["side"]
+        avg = pos["avg_entry"]
+
+        pnl_pct = (
+            (price - avg) / avg
+            if side == "buy"
+            else (avg - price) / avg
+        )
+
+        diff = (price - avg) if side == "buy" else (avg - price)
+        if diff >= self.take_profit_abs:
+            self.force_close(ex, price, "TP")
+
+
+    # =========================
+    # TOTAL PNL
+    # =========================
+    def total_pnl(self):
+        return sum(self.pnl.values())
+
+
+
+# =========================
+# SAVE & LOAD STATE
+# =========================
+def save_state(trader):
+    state = {
+        "balance": trader.balance,
+        "pnl": trader.pnl,
+        "trade_history": list(trader.trade_history)
+    }
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f, indent=2)
+
+
+def load_state(trader):
+    if not os.path.exists(STATE_FILE):
+        return
+
+    with open(STATE_FILE, "r") as f:
+        state = json.load(f)
+
+    trader.balance = state.get("balance", trader.balance)
+    trader.pnl = state.get("pnl", trader.pnl)
+    trader.trade_history = deque(
+        state.get("trade_history", []),
+        maxlen=200
+    )
+
+
+# =========================
+# FETCH MICROPRICE
+# =========================
+async def fetch_price(ex, url, session):
+    try:
+        async with session.get(url, timeout=5) as r:
+            data = await r.json()
+
+            if ex == "Coinbase":
+                bid, bid_sz = map(float, data["bids"][0])
+                ask, ask_sz = map(float, data["asks"][0])
+
+            elif ex == "Kraken":
+                book = list(data["result"].values())[0]
+                bid, bid_sz = map(float, book["bids"][0][:2])
+                ask, ask_sz = map(float, book["asks"][0][:2])
+
+            elif ex == "Bitstamp":
+                bid, bid_sz = map(float, data["bids"][0])
+                ask, ask_sz = map(float, data["asks"][0])
+
+            else:  # Bitfinex
+                bid = float(data["bids"][0]["price"])
+                bid_sz = abs(float(data["bids"][0]["amount"]))
+                ask = float(data["asks"][0]["price"])
+                ask_sz = abs(float(data["asks"][0]["amount"]))
+
+            price = micro_price(bid, ask, bid_sz, ask_sz)
+            return ex, price
+
+    except Exception:
+        return ex, None
+
+
+# =========================
+# GLOBAL STATE
+# =========================
+history = {e: deque(maxlen=60) for e in ORDERBOOK_APIS}
+latest_results = {}
+
+trader = PaperTrader()
+load_state(trader)
+
+
+# =========================
+# TRADING LOOP
+# =========================
+MAX_OPEN_TRADES = 3
+
+
+async def update_prices():
+    global latest_results
+
+    async with aiohttp.ClientSession() as session:
+        while True:
+            # -------------------------
+            # FETCH ALL PRICES
+            # -------------------------
+            results = await asyncio.gather(*[
+                fetch_price(ex, url, session)
+                for ex, url in ORDERBOOK_APIS.items()
+            ])
+
+            prices = {}
+
+            # -------------------------
+            # UPDATE HISTORY & MODELS
+            # -------------------------
+            for ex, price in results:
+                if price is None:
+                    continue
+
+                prices[ex] = price
+                history[ex].append(price)
+
+                pred_hma = (
+                    MODELS["HMA"](list(history[ex]))
+                    if len(history[ex]) >= 12
+                    else None
+                )
+
+                pred_hma2 = (
+                    MODELS["HMA2"](list(history[ex]))
+                    if len(history[ex]) >= 12
+                    else None
+                )
+
+                pos = trader.positions[ex]
+
+                latest_results[ex] = {
+                    "price": price,
+                    "prediction_hma": pred_hma,
+                    "prediction_hma2": pred_hma2,
+                    "position": pos["side"].upper() if pos else "-",
+                    "entries": pos["entries"] if pos else 0,
+                    "adds": pos["adds"] if pos else 0,
+                    "pnl": trader.pnl[ex]
+                }
+
+            # -------------------------
+            # GLOBAL EQUITY STOP
+            # -------------------------
+            if trader.check_global_equity_stop(prices):
+                save_state(trader)
+                await asyncio.sleep(1)
+                continue
+
+            # -------------------------
+            # TAKE PROFIT CHECK
+            # -------------------------
+            for ex, pos in trader.positions.items():
+                if pos is not None and ex in prices:
+                    trader.check_close_trade(ex, prices[ex])
+
+            # -------------------------
+            # OPEN / SCALE TRADES
+            # -------------------------
+            open_trades = sum(
+                1 for p in trader.positions.values() if p is not None
+            )
+
+            for ex, price in prices.items():
+                pos = trader.positions[ex]
+
+                pred_hma = latest_results[ex]["prediction_hma"]
+                pred_hma2 = latest_results[ex]["prediction_hma2"]
+
+                # NEW ENTRY
+                if (
+                    pred_hma is not None
+                    and pos is None
+                    and open_trades < MAX_OPEN_TRADES
+                ):
+                    if pred_hma > price and price > min(pred_hma, pred_hma2):
+                        trader.open_trade(ex, "buy", price)
+                        open_trades += 1
+
+                    elif pred_hma < price and price < max(pred_hma, pred_hma2):
+                        trader.open_trade(ex, "sell", price)
+                        open_trades += 1
+
+                # SCALE-IN
+                elif pos is not None:
+                    trader.open_trade(ex, pos["side"], price)
+
+            save_state(trader)
+            await asyncio.sleep(1)
+
+
+def compute_trade_totals():
+    """
+    Counts ENTRY + ADD only (no exits).
+    Returns BTC + USD totals per exchange.
+    """
+    totals = {}
+
+    for t in trader.trade_history:
+        ex = t["exchange"]
+
+        if t["type"] not in ("ENTRY", "ADD"):
+            continue
+
+        btc = (
+            t.get("btc")
+            or t.get("btc_added")
+            or t.get("size")
+            or 0.0
+        )
+
+        usd = btc * t["price"]
+
+        if ex not in totals:
+            totals[ex] = {
+                "btc_total": 0.0,
+                "usd_total": 0.0,
+                "entries": 0,
+                "adds": 0
+            }
+
+        totals[ex]["btc_total"] += btc
+        totals[ex]["usd_total"] += usd
+
+        if t["type"] == "ENTRY":
+            totals[ex]["entries"] += 1
+        else:
+            totals[ex]["adds"] += 1
+
+    return totals
+
+logging.getLogger("uvicorn").setLevel(logging.CRITICAL)
+
+app = FastAPI(title="BTC Live Microprice API")
+
+
+@app.get("/live")
+async def live_data():
+    return JSONResponse({
+        "timestamp": datetime.now().isoformat(),
+        "balance": trader.balance,
+        "total_pnl": trader.total_pnl(),
+        "totals": compute_trade_totals(),
+        "exchanges": latest_results,
+        "last_trades": list(trader.trade_history)[-20:]
+    })
+
+
+
+async def main():
+    asyncio.create_task(update_prices())
+
+    public_url = ngrok.connect(8000, "http")
+    print(f"Ã°Å¸Å¡â‚¬ Public URL: {public_url}")
+
+    config = uvicorn.Config(
+        app=app,
+        host="0.0.0.0",
+        port=8000,
+        log_level="critical"
+    )
+
+    server = uvicorn.Server(config)
+    await server.serve()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
