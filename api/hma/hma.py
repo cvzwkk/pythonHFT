@@ -129,7 +129,7 @@ MODELS = {
 # PAPER TRADER (DCA ENGINE)
 # =========================
 class PaperTrader:
-    def __init__(self, balance=1_000_000):
+    def __init__(self, balance=1000):
         self.initial_balance = balance
         self.balance = balance
 
