@@ -168,11 +168,8 @@ Total PnL: <span id="total_pnl">-</span>
 </thead>
 <tbody></tbody>
 </table>
-</div>
-
 
 <h2>Bitfinex Order Book (BTC/USD)</h2>
-<div id="orderbookContainer" style="position: absolute; left: 0%; top: 68%; height: 100%; width: 100%">
   <table id="orderbookTable">
     <thead>
       <tr>
@@ -189,6 +186,7 @@ Total PnL: <span id="total_pnl">-</span>
     <tbody></tbody>
   </table>
 </div>
+
 <script>
 let lastSeenTradeTime = null;
 let lastTotalPnl = null;
