@@ -15,7 +15,12 @@ BASE_DIR = "/tmp/"
 # Apply ngrok auth token
 conf.get_default().auth_token = NGROK_AUTH_TOKEN
 
+# Ensure upload directory exists
 os.makedirs(BASE_DIR, exist_ok=True)
+
+# =========================
+# FASTAPI APP
+# =========================
 app = FastAPI()
 
 @app.get("/", response_class=HTMLResponse)
@@ -46,7 +51,13 @@ def download(filename: str):
         raise HTTPException(status_code=404)
     return FileResponse(path, filename=filename)
 
+# =========================
+# START SERVER + NGROK
+# =========================
 if __name__ == "__main__":
-    public_url = ngrok.connect(PORT)
+    # Start ngrok tunnel
+    public_url = ngrok.connect(PORT, "http")
     print("Public URL:", public_url)
+    
+    # Start FastAPI server
     uvicorn.run(app, host="0.0.0.0", port=PORT)
