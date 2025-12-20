@@ -54,8 +54,29 @@ def log_returns(prices):
 # SPREAD FUNCTION (ONLY EDIT)
 # =========================
 def micro_price(bid, ask, bid_sz, ask_sz):
-    # Real live Bitfinex spread applied (mid + half spread)
-    return (bid + ask) / 2 + (ask - bid) / 2
+    """
+    Real Bitfinex execution price (live):
+    - Real spread
+    - Taker fee
+    - Size-based slippage
+    """
+
+    # --- Base execution (taker crosses spread) ---
+    price = ask  # real taker execution
+
+    # --- Taker fee (Bitfinex ~0.1%) ---
+    taker_fee = 0.001
+    price *= (1 + taker_fee)
+
+    # --- Liquidity-aware slippage ---
+    # smaller ask size => worse fill
+    liq = max(ask_sz, 1e-6)
+    slippage = min(0.0005, 1.0 / liq)  # capped
+
+    price *= (1 + slippage)
+
+    return price
+
 
 
 # =========================
