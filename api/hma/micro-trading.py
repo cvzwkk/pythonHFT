@@ -121,7 +121,7 @@ MODELS = {
 # ... EVERYTHING BELOW IS 100% IDENTICAL TO YOUR ORIGINAL CODE ...
 # (no logic, math, structure, or flow modified)
 
-# [SNIPPED Ã¢â‚¬â€ remainder unchanged exactly as provided]
+# [SNIPPED ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â remainder unchanged exactly as provided]
 
 
 
@@ -143,13 +143,10 @@ class PaperTrader:
         self.global_equity_stop_pct = -0.25  # -25%
 
         # ---- DCA params ----
-        self.entry_size = 0.00031               # BTC
-        self.add_ratio = 0.27                # 86% of total BTC
-        # how many USD from entry to add (e.g., 0.0001 = 0.01 cents)
-        self.adjust_step_abs = 0.0001  
-        # take profit target (e.g., 0.0005 = 0.05 cents)
-        self.take_profit_abs = 0.0005  
-
+        self.entry_size = 0.00039370               # BTC
+        self.add_ratio = 0.289                # 86% of total BTC
+        self.adjust_step_pct = 0.068 / 100   # 0.001%
+        self.take_profit_pct = 0.0035 / 100   # 0.009%
 
     # =========================
     # FORCE CLOSE (UNIFIED)
@@ -241,12 +238,17 @@ class PaperTrader:
                 "avg_entry": price,
                 "total_btc": btc,
                 "adds": 0,
-                "entries": 1,  # entry + dca counter
-                "next_add_price": (
-                    price - self.adjust_step_abs
+                "entries": 1,
+                "tp_price": (
+                    price * (1 + self.take_profit_pct)
                     if side == "buy"
-                    else price + self.adjust_step_abs
+                    else price * (1 - self.take_profit_pct)
                 ),
+                "next_add_price": (
+                    price * (1 - self.adjust_step_pct)
+                    if side == "buy"
+                    else price * (1 + self.adjust_step_pct)
+                )
             }
 
             self.trade_history.append({
@@ -259,6 +261,7 @@ class PaperTrader:
                 "time": datetime.now().strftime("%H:%M:%S")
             })
             return
+
 
         # =========================
         # HARD ADD LIMIT
@@ -277,26 +280,35 @@ class PaperTrader:
         if not should_add:
             return
 
-        # =========================
+           # =========================
         # SCALE-IN (BTC BASED)
         # =========================
         added_btc = pos["total_btc"] * self.add_ratio
         new_total_btc = pos["total_btc"] + added_btc
 
-        pos["avg_entry"] = (
+        # ---- new medium (VWAP) price ----
+        new_avg = (
             pos["avg_entry"] * pos["total_btc"]
             + price * added_btc
         ) / new_total_btc
 
+        pos["avg_entry"] = new_avg
         pos["total_btc"] = new_total_btc
         pos["adds"] += 1
         pos["entries"] += 1
 
-        # ✅ FIXED LINE
-        pos["next_add_price"] = (
-            price - self.adjust_step_abs
+        # ---- MOVE TAKE PROFIT WITH MEDIUM PRICE ----
+        pos["tp_price"] = (
+            new_avg * (1 + self.take_profit_pct)
             if side == "buy"
-            else price + self.adjust_step_abs
+            else new_avg * (1 - self.take_profit_pct)
+        )
+
+        # ---- next add trigger ----
+        pos["next_add_price"] = (
+            price * (1 - self.adjust_step_pct)
+            if side == "buy"
+            else price * (1 + self.adjust_step_pct)
         )
 
         self.trade_history.append({
@@ -310,7 +322,6 @@ class PaperTrader:
             "time": datetime.now().strftime("%H:%M:%S")
         })
 
-
     # =========================
     # TAKE PROFIT
     # =========================
@@ -320,24 +331,22 @@ class PaperTrader:
             return
 
         side = pos["side"]
-        avg = pos["avg_entry"]
+        tp = pos["tp_price"]
 
-        pnl_pct = (
-            (price - avg) / avg
-            if side == "buy"
-            else (avg - price) / avg
+        hit_tp = (
+            price >= tp if side == "buy"
+            else price <= tp
         )
 
-        diff = (price - avg) if side == "buy" else (avg - price)
-        if diff >= self.take_profit_abs:
+        if hit_tp:
             self.force_close(ex, price, "TP")
-
 
     # =========================
     # TOTAL PNL
     # =========================
     def total_pnl(self):
         return sum(self.pnl.values())
+
 
 
 
@@ -580,7 +589,7 @@ async def main():
     asyncio.create_task(update_prices())
 
     public_url = ngrok.connect(8000, "http")
-    print(f"Ã°Å¸Å¡â‚¬ Public URL: {public_url}")
+    print(f"ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â¡ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Public URL: {public_url}")
 
     config = uvicorn.Config(
         app=app,
