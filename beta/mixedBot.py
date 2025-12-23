@@ -22,6 +22,12 @@ import nest_asyncio
 nest_asyncio.apply()
 
 # =========================
+# NGROK AUTH KEY
+# =========================
+NGROK_AUTH_TOKEN = os.getenv("37FbPTgCns8TUkTfiqKODN85Fst_6g5utZszXCzwQ2cNDSs78")
+ngrok.set_auth_token(NGROK_AUTH_TOKEN)
+
+# =========================
 # UTILS
 # =========================
 def safe_return(v):
