@@ -20,7 +20,7 @@ from binance.client import Client
 # =============================
 # CONFIG
 # =============================
-NGROK_AUTH_TOKEN = "37DzB0OnX516kowF7pP10D5RNBR_7LrigkUHFQUuyDSAUy7yq"
+NGROK_AUTH_TOKEN = "37FdHYm49BxuhlghpNJqDg9cmNX_5Z4XgJDUsEykxpkNVrn8T"
 NGROK_DASHBOARD_PORT = 4045
 LOCAL_PORT = 8085
 
