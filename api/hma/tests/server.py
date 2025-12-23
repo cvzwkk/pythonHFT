@@ -7,7 +7,6 @@ import shutil
 # =========================
 # CONFIG
 # =========================
-PORT = 8008
 BASE_DIR = "/tmp/"
 
 os.makedirs(BASE_DIR, exist_ok=True)
@@ -42,4 +41,4 @@ def download(filename: str):
     return FileResponse(path, filename=filename)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=PORT)
+    uvicorn.run(app, host="0.0.0.0", port=8008)
