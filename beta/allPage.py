@@ -12,7 +12,7 @@ import asyncio
 # =========================
 # NGROK CONFIG
 # =========================
-NGROK_AUTH_TOKEN = "YOUR_NGROK_AUTH_TOKEN_HERE"  # <-- replace with your token
+NGROK_AUTH_TOKEN = "37FdHYm49BxuhlghpNJqDg9cmNX_5Z4XgJDUsEykxpkNVrn8T"  # <-- replace with your token
 ngrok.set_auth_token(NGROK_AUTH_TOKEN)
 
 # =========================
