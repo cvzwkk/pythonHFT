@@ -19,9 +19,9 @@ ngrok.set_auth_token(NGROK_AUTH_TOKEN)
 # BOT URLs
 # =========================
 BOT_URLS = {
-    "CovEMA Bot": "http://0.0.0.0:8003/live",
-    "HULL Bot": "http://0.0.0.0:8000/live",
-    "SWMA Bot": "http://0.0.0.0:8004/live"
+    "CovEMA Bot": "http://127.0.0.1:8003/live",
+    "HULL Bot": "http://127.0.0.1:8000/live",
+    "SWMA Bot": "http://127.0.0.1:8004/live"
 }
 
 # =========================
