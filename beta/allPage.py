@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import asyncio
-import aiohttp
+import requests
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from pyngrok import ngrok
 from datetime import datetime
 import nest_asyncio
+import asyncio
 
 # =========================
 # NGROK CONFIG
 # =========================
-NGROK_AUTH_TOKEN = "37FdHYm49BxuhlghpNJqDg9cmNX_5Z4XgJDUsEykxpkNVrn8T"  # <-- replace with your token
+NGROK_AUTH_TOKEN = "YOUR_NGROK_AUTH_TOKEN_HERE"  # <-- replace with your token
 ngrok.set_auth_token(NGROK_AUTH_TOKEN)
 
 # =========================
-# BOT URLs
+# BOT URLs (HTTP GET)
 # =========================
 BOT_URLS = {
     "CovEMA Bot": "http://127.0.0.1:8003/live",
@@ -25,29 +25,25 @@ BOT_URLS = {
 }
 
 # =========================
+# FETCH BOT DATA VIA REQUESTS
+# =========================
+def get_bot_data():
+    results = {}
+    for name, url in BOT_URLS.items():
+        try:
+            r = requests.get(url, timeout=5)
+            if r.status_code == 200:
+                results[name] = r.json()
+            else:
+                results[name] = {"error": f"Status {r.status_code}"}
+        except Exception as e:
+            results[name] = {"error": str(e)}
+    return results
+
+# =========================
 # FASTAPI APP
 # =========================
 app = FastAPI(title="HFT Bots Live Dashboard")
-
-# =========================
-# FETCH DATA FROM EACH BOT
-# =========================
-async def fetch_bot_data(session, name, url):
-    try:
-        async with session.get(url, timeout=5) as r:
-            data = await r.json()
-            return name, data
-    except Exception as e:
-        return name, {"error": str(e)}
-
-async def gather_all_bot_data():
-    async with aiohttp.ClientSession() as session:
-        tasks = [
-            fetch_bot_data(session, name, url)
-            for name, url in BOT_URLS.items()
-        ]
-        results = await asyncio.gather(*tasks)
-        return dict(results)
 
 # =========================
 # GENERATE HTML
@@ -90,7 +86,7 @@ def generate_html(data):
             balance_usd = bot_data.get("balance", 0)
             total_pnl = bot_data.get("total_pnl", 0)
             btc_total = sum([v.get("btc_total", 0) for v in bot_data.get("totals", {}).values()])
-            btc_pnl = sum([v.get("btc_total", 0) for v in bot_data.get("totals", {}).values()])  # optional, same as btc_total
+            btc_pnl = sum([v.get("btc_total", 0) for v in bot_data.get("totals", {}).values()])
             last_update = bot_data.get("timestamp", "")
 
             html += f"""
@@ -110,14 +106,14 @@ def generate_html(data):
 # FASTAPI ROUTES
 # =========================
 @app.get("/", response_class=HTMLResponse)
-async def dashboard():
-    data = await gather_all_bot_data()
+def dashboard():
+    data = get_bot_data()
     html = generate_html(data)
     return HTMLResponse(content=html)
 
 @app.get("/api", response_class=JSONResponse)
-async def api_dashboard():
-    data = await gather_all_bot_data()
+def api_dashboard():
+    data = get_bot_data()
     return JSONResponse(content=data)
 
 # =========================
@@ -131,7 +127,6 @@ async def main():
     config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="critical")
     server = uvicorn.Server(config)
     await server.serve()
-
 
 if __name__ == "__main__":
     nest_asyncio.apply()
