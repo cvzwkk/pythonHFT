@@ -638,13 +638,13 @@ async def live_data():
 async def main():
     asyncio.create_task(update_prices())
 
-    public_url = ngrok.connect(8004, "http")
+    public_url = ngrok.connect(8003, "http")
     print(f"ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â°ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Public URL: {public_url}")
 
     config = uvicorn.Config(
         app=app,
         host="0.0.0.0",
-        port=8004,
+        port=8003,
         log_level="critical"
     )
 
