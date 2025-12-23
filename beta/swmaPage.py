@@ -55,7 +55,7 @@ HTML_PAGE = """
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>lull Live Trading Table</title>
+<title>SWMA Live Trading Table</title>
 
 <style>
 body { font-family: Arial; margin: 20px; }
