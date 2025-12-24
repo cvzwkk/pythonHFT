@@ -161,7 +161,6 @@ static void trading_step(double price) {
 }
 
 /* ================= JSON PRICE PARSER ================= */
-/* Extract LAST_PRICE from Bitfinex ticker array */
 
 static inline int parse_price(const char *s, double *out) {
     int commas = 0;
@@ -241,14 +240,19 @@ static void *trade_thread(void *arg) {
             last = now;
             trading_step(last_price);
 
+            double pnl_pct = calc_pnl(last_price) * 100.0;
+            double pnl_val = acc.unrealized;
+
             printf(
-                "%s | P %.2f | Side %d | Ord %d | Avg %.2f | PnL %.4f%% | Bal %.2f\r",
+                "%s | Price: %.2f | Orders: %d | Side: %s | Avg: %.2f | "
+                "PnL: %.4f%% (%.2f) | Balance: %.2f\r",
                 SYMBOL,
                 last_price,
-                pos.side,
                 pos.count,
+                pos.side == 1 ? "LONG" : pos.side == -1 ? "SHORT" : "FLAT",
                 pos.avg_price,
-                calc_pnl(last_price) * 100.0,
+                pnl_pct,
+                pnl_val,
                 acc.balance
             );
             fflush(stdout);
