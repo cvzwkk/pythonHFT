@@ -57,6 +57,66 @@ def micro_price(bid, ask, bid_sz, ask_sz):
     # Real Bitfinex taker execution (simulate 1 real trade crossing spread)
     return ask
 
+# ====================
+# Indicator helpers
+# ====================
+
+def ema(series, period):
+    """Exponential Moving Average."""
+    return series.ewm(span=period, adjust=False).mean()
+
+def dema(series, period):
+    """Double Exponential Moving Average (DEMA)."""
+    ema1 = ema(series, period)
+    ema2 = ema(ema1, period)
+    return 2 * ema1 - ema2
+
+def macd_dema(df, price_col, fast_period=13, slow_period=26):
+    """
+    Compute MACD using DEMA instead of EMA:
+    MACD = DEMA[fast_period] - DEMA[slow_period]
+    """
+    dema_fast = dema(df[price_col], fast_period)
+    dema_slow = dema(df[price_col], slow_period)
+    return dema_fast - dema_slow
+
+# ====================
+# Crossover Detection
+# ====================
+
+def generate_macd_dema_signal(history_open, history_close):
+    """
+    Returns:
+    'buy' if MACD(close) crosses above MACD(open),
+    'sell' if MACD(close) crosses below MACD(open),
+    else None
+    """
+    df = pd.DataFrame({
+        "open": history_open,
+        "close": history_close,
+    })
+
+    # Compute MACDs
+    df["macd_close"] = macd_dema(df, "close")
+    df["macd_open"] = macd_dema(df, "open")
+
+    # We need at least 2 points to check cross
+    if len(df) < 2:
+        return None
+
+    prev = df.iloc[-2]
+    curr = df.iloc[-1]
+
+    # Bullish cross: prev close below open, now above
+    if prev["macd_close"] < prev["macd_open"] and curr["macd_close"] > curr["macd_open"]:
+        return "buy"
+    # Bearish cross
+    if prev["macd_close"] > prev["macd_open"] and curr["macd_close"] < curr["macd_open"]:
+        return "sell"
+
+    return None
+
+
 # =========================
 # HMA MODELS
 # =========================
@@ -437,6 +497,7 @@ async def update_prices():
                 prices[ex] = price
                 history[ex].append(price)
 
+                # Calculate Hull Moving Average Predictions
                 pred_hma = (
                     MODELS["HMA"](list(history[ex]))
                     if len(history[ex]) >= 12
@@ -448,9 +509,31 @@ async def update_prices():
                     if len(history[ex]) >= 12
                     else None
                 )
+                
+                # Extract historical price data for signal generation
+                # Note: Ensure these keys exist in your history dict
+                history_open = history.get(f"{ex}_open", [])
+                history_close = history.get(f"{ex}_close", [])
 
+                # Generate Signal
+                signal = generate_macd_dema_signal(list(history_open), list(history_close))
+
+                # --- POSITION MANAGEMENT ---
                 pos = trader.positions[ex]
+                
+                if signal:
+                    # Close opposite position if one is currently open
+                    if pos and pos["side"] != signal:
+                        trader.force_close(ex, price, "CROSS")
+                        pos = None
 
+                    # Enter new position
+                    if pos is None:
+                        trader.open_trade(ex, signal, price)
+                        # Update local pos variable after opening
+                        pos = trader.positions[ex]
+
+                # --- RECORD RESULTS ---
                 latest_results[ex] = {
                     "price": price,
                     "prediction_hma": pred_hma,
@@ -460,7 +543,7 @@ async def update_prices():
                     "adds": pos["adds"] if pos else 0,
                     "pnl": trader.pnl[ex]
                 }
-
+                        
             # -------------------------
             # GLOBAL EQUITY STOP
             # -------------------------
@@ -486,6 +569,10 @@ async def update_prices():
             for ex, price in prices.items():
                 pos = trader.positions[ex]
 
+                # Ensure results exist for this exchange
+                if ex not in latest_results:
+                    continue
+
                 pred_hma = latest_results[ex]["prediction_hma"]
                 pred_hma2 = latest_results[ex]["prediction_hma2"]
 
@@ -509,7 +596,6 @@ async def update_prices():
 
             save_state(trader)
             await asyncio.sleep(1)
-
 
 def compute_trade_totals():
     """
